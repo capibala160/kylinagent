@@ -1,0 +1,27 @@
+2026-05-13 21:41:18,152 | INFO | EVENT tool_execution | {"tool_name": "list_processes", "arguments": {"sort_by": "cpu", "limit": 5}, "result_summary": {"success": false, "isError": false, "has_output": true}, "chain_id": "246fc64e-3802-4fb5-8a7b-22e7e97a7f55"}
+2026-05-13 21:41:18,152 | INFO | CHAIN 246fc64e-3802-4fb5-8a7b-22e7e97a7f55 | session=test-confirm | status=completed | nodes=5 | input=删除 /tmp/test 目录
+2026-05-13 21:41:42,898 | INFO | EVENT tool_execution | {"tool_name": "kill_process", "arguments": {"pid": 1234, "signal": "SIGKILL"}, "result_summary": {"success": false, "isError": false, "has_output": true}, "chain_id": "e3de6015-4c0d-4ee1-a6e9-c2466d7cb2bf"}
+2026-05-13 21:41:42,898 | INFO | CHAIN e3de6015-4c0d-4ee1-a6e9-c2466d7cb2bf | session=test-full | status=completed | nodes=5 | input=终止进程 1234
+2026-05-13 21:42:57,788 | INFO | EVENT tool_execution | {"tool_name": "find_large_files", "arguments": {"path": "/tmp", "size_threshold": "100M", "limit": 10}, "result_summary": {"success": false, "isError": true, "has_output": true}, "chain_id": "e8c22299-a077-420a-8bc5-5a0a9ad7ef69"}
+2026-05-13 21:42:57,789 | INFO | CHAIN e8c22299-a077-420a-8bc5-5a0a9ad7ef69 | session=test-workflow | status=completed | nodes=5 | input=清理 /tmp 下的大文件
+2026-05-13 21:42:57,806 | INFO | EVENT tool_execution | {"tool_name": "list_processes", "arguments": {"sort_by": "cpu", "limit": 20}, "result_summary": {"success": false, "isError": false, "has_output": true}, "chain_id": "97742dfc-48fb-4fb0-b589-91c95d54e413"}
+2026-05-13 21:42:57,807 | INFO | CHAIN 97742dfc-48fb-4fb0-b589-91c95d54e413 | session=test-no-pending | status=completed | nodes=6 | input=查看系统信息
+2026-05-15 14:32:51,084 | INFO | EVENT tool_execution | {"tool_name": "list_processes", "arguments": {"limit": 3}, "result_summary": {"success": false, "isError": false, "has_output": true}, "chain_id": "594285b9-962b-4918-8fc4-ae9ef6ff8ead"}
+2026-05-15 14:32:51,085 | INFO | CHAIN 594285b9-962b-4918-8fc4-ae9ef6ff8ead | session=test-confirm | status=completed | nodes=5 | input=删除 /tmp/test
+2026-05-15 14:42:54,650 | INFO | EVENT tool_execution | {"tool_name": "find_large_files", "arguments": {"path": "/tmp", "size_threshold": "100M"}, "result_summary": {"success": false, "isError": true, "has_output": true}, "chain_id": "bc5337cf-5a09-44fe-b8fa-a7513a791848"}
+2026-05-15 14:42:54,650 | INFO | CHAIN bc5337cf-5a09-44fe-b8fa-a7513a791848 | session=test-improve | status=completed | nodes=5 | input=清理系统
+2026-05-15 14:43:44,681 | INFO | EVENT tool_execution | {"tool_name": "find_large_files", "arguments": {"path": "/tmp", "size_threshold": "100M"}, "result_summary": {"success": false, "isError": true, "has_output": true}, "chain_id": "845a3209-a75e-42d8-b1f1-7276de809064"}
+2026-05-15 14:43:44,681 | INFO | CHAIN 845a3209-a75e-42d8-b1f1-7276de809064 | session=test-full | status=completed | nodes=5 | input=清理系统并终止异常进程
+2026-05-15 14:51:05,113 | INFO | EVENT tool_execution | {"tool_name": "find_large_files", "arguments": {"path": "/tmp", "size_threshold": "100M"}, "result_summary": {"success": false, "isError": true, "has_output": true}, "chain_id": "e96d69f6-faf0-4cee-92e3-231ea2f0c5ec"}
+2026-05-15 14:51:05,113 | INFO | CHAIN e96d69f6-faf0-4cee-92e3-231ea2f0c5ec | session=test-pending-filter | status=completed | nodes=5 | input=测试
+2026-05-15 14:54:06,055 | INFO | EVENT tool_execution | {"tool_name": "find_large_files", "arguments": {"path": "/var/log", "size_threshold": "100M"}, "result_summary": {"success": false, "isError": true, "has_output": true}, "chain_id": "449a30e2-7460-48a5-a40f-47198b6dd92d"}
+2026-05-15 14:54:06,055 | INFO | CHAIN 449a30e2-7460-48a5-a40f-47198b6dd92d | session=test-complete | status=completed | nodes=5 | input=查看磁盘并清理大文件
+2026-05-19 21:03:11,184 | INFO | CHAIN 2dbbc98b-2779-4b7a-9c38-3e284cd91587 | session=sess_nvbfh9n7f | status=failed | nodes=3 | input=查看内存使用情况
+2026-05-19 21:04:13,680 | INFO | CHAIN f8eaa74c-48ad-46bb-b9ae-543308a28556 | session=sess_nvbfh9n7f | status=failed | nodes=3 | input=帮我查看内存使用情况
+2026-05-19 21:10:00,704 | INFO | CHAIN fec0cd84-3b8d-42dc-b447-a8426b766418 | session=test-fix | status=failed | nodes=4 | input=查看内存使用情况
+2026-05-19 21:13:31,204 | INFO | EVENT tool_execution | {"tool_name": "list_processes", "arguments": {"sort_by": "cpu", "limit": 20}, "result_summary": {"success": false, "isError": false, "has_output": true}, "chain_id": "66cc571c-eef3-4da9-ae16-b29ebcbb277d"}
+2026-05-19 21:13:31,205 | INFO | CHAIN 66cc571c-eef3-4da9-ae16-b29ebcbb277d | session=test-fix3 | status=completed | nodes=6 | input=查看内存使用情况
+2026-05-19 21:13:55,672 | INFO | EVENT tool_execution | {"tool_name": "list_processes", "arguments": {"sort_by": "cpu", "limit": 20}, "result_summary": {"success": false, "isError": false, "has_output": true}, "chain_id": "185973b0-8a10-4e69-9a9b-4db161297743"}
+2026-05-19 21:13:55,672 | INFO | CHAIN 185973b0-8a10-4e69-9a9b-4db161297743 | session=test-mem | status=completed | nodes=6 | input=帮我看看内存
+2026-05-19 21:15:09,766 | INFO | EVENT tool_execution | {"tool_name": "list_processes", "arguments": {"sort_by": "cpu", "limit": 20}, "result_summary": {"success": false, "isError": false, "has_output": true}, "chain_id": "de5a5fe7-95c0-4dc2-b5e9-3ef5daf45aea"}
+2026-05-19 21:15:09,766 | INFO | CHAIN de5a5fe7-95c0-4dc2-b5e9-3ef5daf45aea | session=test-mem2 | status=completed | nodes=6 | input=内存

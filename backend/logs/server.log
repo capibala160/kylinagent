@@ -1,0 +1,38 @@
+INFO:     Started server process [45229]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:42868 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38662 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34136 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54826 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46680 - "POST /v1/chat/completions HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:46666 - "POST /api/chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51612 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51624 - "POST /api/chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57776 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59466 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58126 - "POST /api/chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36534 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36336 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56628 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33364 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56682 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35610 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44626 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35408 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48692 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33384 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60872 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:37610 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:37658 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59986 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59162 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39972 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53148 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46118 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48570 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41392 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45954 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35914 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47224 - "GET /api/health HTTP/1.1" 200 OK

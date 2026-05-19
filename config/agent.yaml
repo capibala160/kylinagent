@@ -1,0 +1,89 @@
+# Kylin Ops Agent 配置文件
+
+# Agent 基础配置
+agent:
+  name: "KylinSafeOpsAgent"
+  version: "1.0.0"
+  description: "面向麒麟操作系统的安全智能运维Agent"
+  
+# LLM 配置
+llm:
+  provider: "openai_compatible"  # 支持 openai_compatible / deepseek / qwen 等
+  api_base: "http://localhost:8000/v1"  # 本地模型服务地址
+  api_key: "sk-dummy"
+  model: "deepseek-chat"
+  temperature: 0.3
+  max_tokens: 4096
+  timeout: 60
+
+# MCP Server 配置
+mcp:
+  server_name: "kylin-ops-mcp-server"
+  version: "1.0.0"
+  
+# 安全护栏配置
+security:
+  # 危险命令黑名单（正则）
+  dangerous_commands:
+    - "^\\s*rm\\s+-rf\\s+/"
+    - "^\\s*mkfs\\."
+    - "^\\s*dd\\s+if=.*of=/dev/[sh]d[a-z]"
+    - "^\\s*>\\s*/dev/[sh]d[a-z]"
+    - "^\\s*chmod\\s+-R\\s+777\\s+/"
+    - ":(){ :|:& };:"
+    - "^\\s*reboot"
+    - "^\\s*shutdown"
+  
+  # 需要确认的高危操作
+  confirm_required_patterns:
+    - "rm\\s+.*-rf"
+    - "kill\\s+-9"
+    - "chmod\\s+.*777"
+    - "systemctl\\s+(stop|restart)"
+  
+  # 最小权限执行用户
+  restricted_user: "opsagent"
+  
+  # 允许执行的命令白名单前缀
+  allowed_command_prefixes:
+    - "ps"
+    - "top"
+    - "htop"
+    - "df"
+    - "du"
+    - "free"
+    - "lsof"
+    - "netstat"
+    - "ss"
+    - "ip"
+    - "ping"
+    - "journalctl"
+    - "systemctl status"
+    - "cat"
+    - "grep"
+    - "find"
+    - "ls"
+    - "pwd"
+    - "uname"
+    - "uptime"
+    - "who"
+    - "last"
+    - "vmstat"
+    - "iostat"
+    - "mpstat"
+    - "sar"
+    - "dmesg"
+    - "lsblk"
+    - "fdisk -l"
+    - "tar"
+    - "gzip"
+    - "tail"
+    - "head"
+    - "wc"
+
+# 审计配置
+audit:
+  log_dir: "./logs/audit"
+  log_level: "INFO"
+  retention_days: 90
+  enable_console: true

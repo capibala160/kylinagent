@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kylin Safe Ops Agent - 安全智能运维</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>🛡️ KylinOps</h1>
+                <p class="subtitle">安全智能运维 Agent</p>
+            </div>
+            
+            <div class="sidebar-nav">
+                <button class="nav-btn active" data-view="chat">
+                    <span>💬</span> 运维对话
+                </button>
+                <button class="nav-btn" data-view="audit">
+                    <span>📋</span> 审计日志
+                </button>
+                <button class="nav-btn" data-view="tools">
+                    <span>🛠️</span> 工具列表
+                </button>
+                <button class="nav-btn" data-view="config">
+                    <span>⚙️</span> 系统配置
+                </button>
+            </div>
+            
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span id="statusText">检查中...</span>
+                </div>
+                <div class="sidebar-actions">
+                    <button class="new-chat-btn" id="newChatBtn">+ 新会话</button>
+                    <button class="logout-btn" id="logoutBtn" title="退出登录">⎋</button>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 聊天视图 -->
+            <div class="view chat-view active" id="chatView">
+                <div class="chat-header">
+                    <h2>运维助手</h2>
+                    <span class="session-id" id="sessionId"></span>
+                </div>
+                
+                <div class="chat-messages" id="chatMessages">
+                    <div class="welcome-message">
+                        <h3>👋 欢迎使用 Kylin Safe Ops Agent</h3>
+                        <p>我是您的安全智能运维助手，可以帮助您：</p>
+                        <ul>
+                            <li>🔍 查看系统状态（CPU、内存、磁盘、网络）</li>
+                            <li>📊 分析进程和日志</li>
+                            <li>🧹 清理系统垃圾（带安全确认）</li>
+                            <li>🔧 诊断和解决系统问题</li>
+                        </ul>
+                        <p class="security-notice">
+                            🛡️ 所有操作均经过安全护栏校验，高危操作需要二次确认。
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="chat-input-area">
+                    <div class="input-wrapper">
+                        <textarea 
+                            id="chatInput" 
+                            placeholder="请输入运维指令，例如：帮我查看系统内存使用情况..."
+                            rows="1"
+                        ></textarea>
+                        <button class="send-btn" id="sendBtn">➤</button>
+                    </div>
+                    <div class="input-hints">
+                        <span>试试：</span>
+                        <button class="hint-btn" data-hint="查看系统基本信息">系统信息</button>
+                        <button class="hint-btn" data-hint="查看内存使用情况">内存</button>
+                        <button class="hint-btn" data-hint="查看磁盘使用情况">磁盘</button>
+                        <button class="hint-btn" data-hint="查看网络连接">网络</button>
+                        <button class="hint-btn" data-hint="查找僵尸进程">僵尸进程</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 审计日志视图 -->
+            <div class="view audit-view" id="auditView">
+                <div class="view-header">
+                    <h2>📋 审计日志</h2>
+                    <div class="filter-bar">
+                        <select id="auditFilter">
+                            <option value="">全部状态</option>
+                            <option value="completed">已完成</option>
+                            <option value="blocked">已拦截</option>
+                            <option value="failed">失败</option>
+                        </select>
+                        <button id="refreshAudit">刷新</button>
+                    </div>
+                </div>
+                <div class="audit-list" id="auditList">
+                    <p class="empty-state">加载中...</p>
+                </div>
+            </div>
+            
+            <!-- 工具列表视图 -->
+            <div class="view tools-view" id="toolsView">
+                <div class="view-header">
+                    <h2>🛠️ MCP 工具列表</h2>
+                </div>
+                <div class="tools-grid" id="toolsGrid">
+                    <p class="empty-state">加载中...</p>
+                </div>
+            </div>
+            
+            <!-- 配置视图 -->
+            <div class="view config-view" id="configView">
+                <div class="view-header">
+                    <h2>⚙️ 系统配置</h2>
+                </div>
+                <div class="config-content" id="configContent">
+                    <p class="empty-state">加载中...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 确认对话框 -->
+    <div class="modal" id="confirmModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>⚠️ 安全确认</h3>
+            </div>
+            <div class="modal-body">
+                <p id="confirmMessage">检测到潜在风险操作，是否继续？</p>
+                <div class="risk-details" id="riskDetails"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="cancelBtn">取消</button>
+                <button class="btn-danger" id="confirmBtn">确认执行</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 链路详情弹窗 -->
+    <div class="modal" id="chainModal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>🔗 推理链路详情</h3>
+                <button class="close-btn" id="closeChainModal">×</button>
+            </div>
+            <div class="modal-body" id="chainDetails"></div>
+        </div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
