@@ -217,5 +217,29 @@ class SessionAuth:
             }
 
 
-# 全局单例
-session_auth = SessionAuth()
+# 全局单例工厂（支持测试替换）
+_session_auth_instance: Optional[SessionAuth] = None
+
+
+def get_session_auth() -> SessionAuth:
+    """获取 SessionAuth 实例（工厂模式，支持测试替换）"""
+    global _session_auth_instance
+    if _session_auth_instance is None:
+        _session_auth_instance = SessionAuth()
+    return _session_auth_instance
+
+
+def set_session_auth(instance: SessionAuth):
+    """设置自定义 SessionAuth 实例（主要用于单元测试）"""
+    global _session_auth_instance
+    _session_auth_instance = instance
+
+
+def reset_session_auth():
+    """重置 SessionAuth 实例"""
+    global _session_auth_instance
+    _session_auth_instance = None
+
+
+# 兼容旧代码：直接导入 session_auth 仍然可用
+session_auth = get_session_auth()

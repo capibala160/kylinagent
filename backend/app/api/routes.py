@@ -16,16 +16,31 @@ audit_logger = AuditLogger(
     retention_days=get_config().audit.retention_days
 )
 
-# 全局 Agent 实例
+# 全局 Agent 实例（支持测试替换和热重启）
 _agent: Optional[OpsAgent] = None
+_agent_use_mock: bool = False
 
 
 def get_agent() -> OpsAgent:
+    """获取 Agent 实例，支持 mock 模式和测试替换"""
     global _agent
     if _agent is None:
-        use_mock = False
-        _agent = OpsAgent(use_mock_llm=use_mock)
+        _agent = OpsAgent(use_mock_llm=_agent_use_mock)
     return _agent
+
+
+def set_agent_mock(use_mock: bool):
+    """设置 Agent 使用 Mock LLM（测试或离线环境）"""
+    global _agent_use_mock
+    _agent_use_mock = use_mock
+
+
+def reset_agent():
+    """重置 Agent 实例（主要用于单元测试）"""
+    global _agent
+    if _agent:
+        # 异步关闭需要特殊处理，简单场景直接置空
+        _agent = None
 
 
 async def get_current_user(request: Request) -> str:

@@ -70,12 +70,34 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     return AppConfig()
 
 
-# 全局配置实例
+# 全局配置实例（支持热更新和测试替换）
 _config: Optional[AppConfig] = None
+_config_path: Optional[str] = None
 
 
-def get_config() -> AppConfig:
+def get_config(force_reload: bool = False) -> AppConfig:
+    """
+    获取应用配置。
+    
+    Args:
+        force_reload: 为 True 时强制重新加载配置文件（热更新）
+    
+    Returns:
+        AppConfig 实例
+    """
     global _config
-    if _config is None:
-        _config = load_config()
+    if _config is None or force_reload:
+        _config = load_config(_config_path)
     return _config
+
+
+def set_config_path(path: Optional[str] = None):
+    """设置配置文件路径，下次 get_config 时生效"""
+    global _config_path
+    _config_path = path
+
+
+def reset_config():
+    """重置配置（主要用于单元测试）"""
+    global _config
+    _config = None
