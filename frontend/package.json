@@ -1,0 +1,14 @@
+{
+  "name": "kylin-ops-frontend",
+  "version": "1.0.0",
+  "description": "Kylin Safe Ops Agent 前端",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
