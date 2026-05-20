@@ -343,19 +343,48 @@ function addMessage(role, content, meta = {}) {
 }
 
 function renderMarkdown(text) {
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-        .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/^- (.*$)/gim, '<li>$1</li>')
-        .replace(/\n/g, '<br>');
+    /**
+     * 使用 marked.js 解析 Markdown + DOMPurify 净化 HTML
+     * 彻底防御 XSS：先由 marked 生成 HTML，再由 DOMPurify 过滤危险标签/属性
+     */
+    if (!text) return '';
+    
+    // 配置 marked：禁用不安全的 HTML 标签，启用 GitHub Flavored Markdown
+    marked.setOptions({
+        gfm: true,
+        breaks: true,
+        headerIds: false,
+        mangle: false,
+        sanitize: false  // 由 DOMPurify 处理，marked 自身不做过滤
+    });
+    
+    // 先解析 Markdown 为 HTML
+    const rawHtml = marked.parse(text);
+    
+    // 再用 DOMPurify 净化：只允许安全标签和属性
+    const cleanHtml = DOMPurify.sanitize(rawHtml, {
+        ALLOWED_TAGS: [
+            'p', 'br', 'hr',
+            'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+            'strong', 'b', 'em', 'i', 'del', 's',
+            'ul', 'ol', 'li',
+            'pre', 'code',
+            'blockquote',
+            'a', 'img',
+            'table', 'thead', 'tbody', 'tr', 'th', 'td'
+        ],
+        ALLOWED_ATTR: {
+            'a': ['href', 'title'],
+            'img': ['src', 'alt', 'title'],
+            'code': ['class'],
+            'pre': ['class']
+        },
+        ALLOW_DATA_ATTR: false,
+        // 强制所有链接在新标签页打开，并添加 noopener
+        ADD_ATTR: ['target', 'rel']
+    });
+    
+    return cleanHtml;
 }
 
 function formatToolResults(results) {
