@@ -437,12 +437,15 @@ async function loadAuditLogs() {
         const url = '/audit/chains' + (status ? `?status=${status}&limit=100` : '?limit=100');
         const data = await apiGet(url);
         
-        if (!data.chains || data.chains.length === 0) {
+        // 兼容后端返回格式：直接数组或 {chains: [...]}
+        const chains = Array.isArray(data) ? data : (data.chains || []);
+        
+        if (!chains || chains.length === 0) {
             list.innerHTML = '<p class="empty-state">暂无记录</p>';
             return;
         }
         
-        list.innerHTML = data.chains.map(chain => `
+        list.innerHTML = chains.map(chain => `
             <div class="audit-item status-${chain.final_status}" onclick="showChainDetails('${chain.chain_id}')">
                 <div class="audit-item-header">
                     <span class="audit-item-title">${escapeHtml(chain.user_input.substr(0, 50))}${chain.user_input.length > 50 ? '...' : ''}</span>

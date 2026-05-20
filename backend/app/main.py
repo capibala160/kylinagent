@@ -24,9 +24,16 @@ app = FastAPI(
 
 # CORS 配置
 # 生产环境应限制为特定域名，避免凭证泄露
-# 默认允许本地开发环境
+# 默认仅允许本地开发环境，生产环境通过 CORS_ORIGINS 环境变量配置
 import os
-cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
+_cors_env = os.environ.get("CORS_ORIGINS", "")
+if _cors_env.strip():
+    # 生产环境：严格限制为配置的域名
+    cors_origins = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
+else:
+    # 开发环境：仅允许本地
+    cors_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
