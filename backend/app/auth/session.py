@@ -25,10 +25,10 @@ from ..db import (
 )
 
 
-# 保留开发环境 Token 作为降级兼容
-DEV_API_TOKEN = os.environ.get(
-    "OPS_API_TOKEN", "kylin-ops-dev-token-CHANGE-IN-PROD"
-)
+# 开发环境 Token：必须显式设置环境变量 OPS_API_TOKEN 才能启用
+# 未设置时 Dev Token 认证完全禁用，防止默认值被利用绕过认证
+_DEV_API_TOKEN_RAW = os.environ.get("OPS_API_TOKEN", "")
+DEV_API_TOKEN = _DEV_API_TOKEN_RAW if _DEV_API_TOKEN_RAW.strip() else None
 
 
 class SessionAuth:
@@ -112,12 +112,13 @@ class SessionAuth:
                 await db_update_session_last_active(sid)
                 return session["username"]
 
-        # 2) 降级：开发 Token（避免完全锁死无 Cookie 的调用方）
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth.replace("Bearer ", "").strip()
-            if token == DEV_API_TOKEN:
-                return "dev_token"
+        # 2) 降级：开发 Token（仅当显式配置 OPS_API_TOKEN 环境变量时启用）
+        if DEV_API_TOKEN is not None:
+            auth = request.headers.get("Authorization", "")
+            if auth.startswith("Bearer "):
+                token = auth.replace("Bearer ", "").strip()
+                if token == DEV_API_TOKEN:
+                    return "dev_token"
 
         raise HTTPException(status_code=401, detail="未登录或会话已过期")
 
