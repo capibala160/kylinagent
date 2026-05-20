@@ -6,7 +6,7 @@
 import os
 import secrets
 import time
-import hashlib
+import bcrypt
 from typing import Dict, Optional
 from fastapi import Request, HTTPException
 
@@ -31,12 +31,23 @@ class SessionAuth:
         # 初始化默认管理员账号
         self._init_default_user()
 
+    def _hash_password(self, password: str) -> str:
+        """使用 bcrypt 对密码进行哈希"""
+        return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
+
+    def _verify_password_hash(self, password: str, hashed: str) -> bool:
+        """使用 bcrypt 验证密码"""
+        try:
+            return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+        except Exception:
+            return False
+
     def _init_default_user(self):
         """初始化默认管理员账号"""
         env_user = os.environ.get("OPS_ADMIN_USER", "opsadmin")
         env_pass = os.environ.get("OPS_ADMIN_PASS", "KylinOps@2024")
         self._users[env_user] = {
-            "password_hash": hashlib.sha256(env_pass.encode()).hexdigest(),
+            "password_hash": self._hash_password(env_pass),
             "created_at": time.time(),
         }
 
@@ -104,7 +115,7 @@ class SessionAuth:
         if self.user_exists(username):
             return False
         self._users[username] = {
-            "password_hash": hashlib.sha256(password.encode()).hexdigest(),
+            "password_hash": self._hash_password(password),
             "created_at": time.time(),
         }
         return True
@@ -117,8 +128,7 @@ class SessionAuth:
         user = self._users.get(username)
         if not user:
             return False
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        return secrets.compare_digest(password_hash, user["password_hash"])
+        return self._verify_password_hash(password, user["password_hash"])
 
 
 # 全局单例
