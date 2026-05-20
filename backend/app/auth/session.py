@@ -1,6 +1,7 @@
 """Session 认证管理模块
 
-生产环境建议使用 Redis 替代内存字典，以支持多实例横向扩展。
+使用 SQLite 持久化存储用户和 Session 数据，服务重启后数据不丢失。
+生产环境建议迁移到 PostgreSQL/MySQL 以支持多实例横向扩展。
 """
 
 import os
@@ -10,6 +11,19 @@ import bcrypt
 from typing import Dict, Optional
 from fastapi import Request, HTTPException
 
+from ..db import (
+    init_db,
+    db_user_exists,
+    db_create_user,
+    db_get_user,
+    db_get_all_users,
+    db_create_session,
+    db_get_session,
+    db_update_session_last_active,
+    db_delete_session,
+    db_delete_expired_sessions,
+)
+
 
 # 保留开发环境 Token 作为降级兼容
 DEV_API_TOKEN = os.environ.get(
@@ -18,55 +32,61 @@ DEV_API_TOKEN = os.environ.get(
 
 
 class SessionAuth:
-    """基于内存的 Session 管理器"""
+    """基于 SQLite 的 Session 管理器"""
 
     # Session 有效期：8 小时
     SESSION_TTL = 3600 * 8
 
     def __init__(self):
-        # sid -> {username, created_at, last_active}
-        self._sessions: Dict[str, dict] = {}
-        # username -> {password_hash, created_at}
-        self._users: Dict[str, dict] = {}
-        # 初始化默认管理员账号
-        self._init_default_user()
+        # 内存缓存（减少数据库查询）
+        self._session_cache: Dict[str, dict] = {}
+        self._user_cache: Dict[str, dict] = {}
+        self._db_initialized = False
 
-    def _hash_password(self, password: str) -> str:
+    async def _ensure_db(self):
+        """确保数据库已初始化"""
+        if not self._db_initialized:
+            await init_db()
+            self._db_initialized = True
+            # 加载所有用户到内存缓存
+            users = await db_get_all_users()
+            for u in users:
+                self._user_cache[u["username"]] = u
+
+    # ------------------------------------------------------------------
+    # 密码哈希
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _hash_password(password: str) -> str:
         """使用 bcrypt 对密码进行哈希"""
         return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
 
-    def _verify_password_hash(self, password: str, hashed: str) -> bool:
+    @staticmethod
+    def _verify_password_hash(password: str, hashed: str) -> bool:
         """使用 bcrypt 验证密码"""
         try:
             return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
         except Exception:
             return False
 
-    def _init_default_user(self):
-        """初始化默认管理员账号"""
-        env_user = os.environ.get("OPS_ADMIN_USER", "opsadmin")
-        env_pass = os.environ.get("OPS_ADMIN_PASS", "KylinOps@2024")
-        self._users[env_user] = {
-            "password_hash": self._hash_password(env_pass),
-            "created_at": time.time(),
-        }
-
     # ------------------------------------------------------------------
     # 公有接口
     # ------------------------------------------------------------------
 
-    def create(self, username: str) -> str:
+    async def create(self, username: str) -> str:
         """创建新 Session，返回 Session ID"""
+        await self._ensure_db()
         sid = secrets.token_urlsafe(32)
-        now = time.time()
-        self._sessions[sid] = {
+        await db_create_session(sid, username)
+        self._session_cache[sid] = {
             "username": username,
-            "created_at": now,
-            "last_active": now,
+            "created_at": time.time(),
+            "last_active": time.time(),
         }
         return sid
 
-    def verify(self, request: Request) -> str:
+    async def verify(self, request: Request) -> str:
         """
         校验请求身份。
         优先级：
@@ -77,9 +97,19 @@ class SessionAuth:
         # 1) Cookie 优先
         sid = request.cookies.get("ops_session", "")
         if sid:
-            session = self._sessions.get(sid)
+            # 先查内存缓存
+            cached = self._session_cache.get(sid)
+            if cached and (time.time() - cached["last_active"] <= self.SESSION_TTL):
+                cached["last_active"] = time.time()
+                await db_update_session_last_active(sid)
+                return cached["username"]
+
+            # 缓存未命中，查数据库
+            await self._ensure_db()
+            session = await db_get_session(sid)
             if session and (time.time() - session["last_active"] <= self.SESSION_TTL):
-                session["last_active"] = time.time()
+                self._session_cache[sid] = session
+                await db_update_session_last_active(sid)
                 return session["username"]
 
         # 2) 降级：开发 Token（避免完全锁死无 Cookie 的调用方）
@@ -91,44 +121,99 @@ class SessionAuth:
 
         raise HTTPException(status_code=401, detail="未登录或会话已过期")
 
-    def destroy(self, sid: str):
+    async def destroy(self, sid: str):
         """销毁指定 Session"""
-        self._sessions.pop(sid, None)
+        await self._ensure_db()
+        self._session_cache.pop(sid, None)
+        await db_delete_session(sid)
 
-    def get_session_info(self, sid: str) -> Optional[dict]:
+    async def get_session_info(self, sid: str) -> Optional[dict]:
         """获取 Session 信息（仅内部使用）"""
-        return self._sessions.get(sid)
+        await self._ensure_db()
+        # 先查缓存
+        cached = self._session_cache.get(sid)
+        if cached:
+            return cached
+        # 再查数据库
+        session = await db_get_session(sid)
+        if session:
+            self._session_cache[sid] = session
+        return session
+
+    async def cleanup_expired(self) -> int:
+        """清理过期 Session，返回清理数量"""
+        await self._ensure_db()
+        count = await db_delete_expired_sessions(self.SESSION_TTL)
+        # 同步清理内存缓存
+        now = time.time()
+        expired = [sid for sid, s in self._session_cache.items()
+                   if now - s["last_active"] > self.SESSION_TTL]
+        for sid in expired:
+            self._session_cache.pop(sid, None)
+        return count
 
     # ------------------------------------------------------------------
-    # 用户注册 / 密码校验（简易本地账号，生产环境请对接 LDAP/统一认证）
+    # 用户注册 / 密码校验
     # ------------------------------------------------------------------
 
-    def user_exists(self, username: str) -> bool:
+    async def user_exists(self, username: str) -> bool:
         """检查用户名是否已存在"""
-        return username in self._users
+        await self._ensure_db()
+        # 先查缓存
+        if username in self._user_cache:
+            return True
+        # 再查数据库
+        return await db_user_exists(username)
 
-    def register(self, username: str, password: str) -> bool:
+    async def register(self, username: str, password: str) -> bool:
         """
         注册新用户。
         返回 True 表示注册成功，False 表示用户名已存在。
         """
-        if self.user_exists(username):
+        await self._ensure_db()
+        if await db_user_exists(username):
             return False
-        self._users[username] = {
-            "password_hash": self._hash_password(password),
-            "created_at": time.time(),
-        }
-        return True
+        password_hash = self._hash_password(password)
+        success = await db_create_user(username, password_hash)
+        if success:
+            self._user_cache[username] = {
+                "username": username,
+                "password_hash": password_hash,
+                "created_at": time.time(),
+            }
+        return success
 
-    def verify_password(self, username: str, password: str) -> bool:
+    async def verify_password(self, username: str, password: str) -> bool:
         """
         验证用户密码。
         支持注册的用户和默认管理员账号。
         """
-        user = self._users.get(username)
+        await self._ensure_db()
+        # 先查缓存
+        cached = self._user_cache.get(username)
+        if cached:
+            return self._verify_password_hash(password, cached["password_hash"])
+        # 再查数据库
+        user = await db_get_user(username)
         if not user:
             return False
+        # 加载到缓存
+        self._user_cache[username] = user
         return self._verify_password_hash(password, user["password_hash"])
+
+    async def init_default_user(self):
+        """初始化默认管理员账号（如果不存在）"""
+        await self._ensure_db()
+        env_user = os.environ.get("OPS_ADMIN_USER", "opsadmin")
+        env_pass = os.environ.get("OPS_ADMIN_PASS", "KylinOps@2024")
+        
+        if not await db_user_exists(env_user):
+            await db_create_user(env_user, self._hash_password(env_pass))
+            self._user_cache[env_user] = {
+                "username": env_user,
+                "password_hash": self._hash_password(env_pass),
+                "created_at": time.time(),
+            }
 
 
 # 全局单例

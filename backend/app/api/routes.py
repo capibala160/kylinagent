@@ -28,9 +28,9 @@ def get_agent() -> OpsAgent:
     return _agent
 
 
-def get_current_user(request: Request) -> str:
+async def get_current_user(request: Request) -> str:
     """统一认证依赖：优先 Cookie Session，降级支持 Dev Token"""
-    return session_auth.verify(request)
+    return await session_auth.verify(request)
 
 
 # ========== 请求/响应模型 ==========
@@ -96,10 +96,10 @@ async def register(request: RegisterRequest):
     用户注册接口。
     注册成功后直接返回，不自动登录（需手动登录）。
     """
-    if session_auth.user_exists(request.username):
+    if await session_auth.user_exists(request.username):
         raise HTTPException(status_code=409, detail="用户名已存在")
 
-    session_auth.register(request.username, request.password)
+    await session_auth.register(request.username, request.password)
     return RegisterResponse(
         success=True,
         username=request.username,
@@ -113,10 +113,10 @@ async def login(request: LoginRequest, response: Response):
     用户登录接口。
     成功后在响应中设置 HttpOnly Cookie（ops_session）。
     """
-    if not session_auth.verify_password(request.username, request.password):
+    if not await session_auth.verify_password(request.username, request.password):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-    sid = session_auth.create(request.username)
+    sid = await session_auth.create(request.username)
     response.set_cookie(
         key="ops_session",
         value=sid,
@@ -138,7 +138,7 @@ async def logout(request: Request, response: Response):
     """用户登出接口，销毁 Session 并清除 Cookie"""
     sid = request.cookies.get("ops_session", "")
     if sid:
-        session_auth.destroy(sid)
+        await session_auth.destroy(sid)
     response.delete_cookie(key="ops_session", path="/")
     return {"success": True, "message": "已登出"}
 
