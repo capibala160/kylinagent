@@ -192,14 +192,61 @@ class LLMClient:
 class MockLLMClient:
     """
     模拟 LLM 客户端，用于无模型环境下的测试
-    """
     
+    从 messages 中智能提取用户原始输入，避免对整个 prompt（含系统提示、工具描述）
+    做关键词匹配导致的误触发。
+    """
+
+    # 用户输入信号词到工具的映射（按优先级排序，长词优先匹配）
+    _TOOL_KEYWORDS = [
+        # 长词/精确匹配优先
+        (["磁盘诊断", "空间分析", "disk diagnose"], "diagnose_disk", {"mountpoint": "/"}),
+        (["进程诊断", "process diagnose", "僵尸进程分析"], "diagnose_process", {}),
+        (["性能诊断", "performance diagnose", "瓶颈分析"], "diagnose_performance", {}),
+        (["comprehensive diagnosis"], "comprehensive_diagnosis", {}),
+        # 普通关键词
+        (["进程", "process", "僵尸", "zombie"], "list_processes", {"sort_by": "cpu", "limit": 20}),
+        (["磁盘", "disk", "空间", "空间不足", "full"], "get_disk_usage", {}),
+        (["内存", "memory", "mem"], "get_memory_info", {}),
+        (["网络", "network", "端口", "port", "连接"], "get_network_connections", {"protocol": "all"}),
+        (["日志", "log", "journal"], "search_log", {"keyword": "error", "source": "journalctl", "since": "1 hour ago", "limit": 50}),
+        (["服务", "service", "systemctl"], "list_services", {}),
+        (["登录", "login", "lastb"], "get_login_history", {"type": "all", "limit": 30}),
+        (["cpu", "处理器", "负载"], "get_cpu_info", {}),
+        (["启动", "boot", "内核"], "get_kernel_logs", {"level": "err", "limit": 100}),
+    ]
+
+    # 诊断类意图（需要 comprehensive_diagnosis）
+    _DIAGNOSIS_KEYWORDS = ["诊断", "根因", "为什么", "问题", "故障", "排查", "分析", "慢", "卡顿", "异常", "卡", "崩溃", "失败", "错误", "err", "error", "timeout", "超时"]
+
+    @classmethod
+    def _extract_user_query(cls, messages: List[Dict]) -> str:
+        """
+        从 messages 中提取用户原始查询。
+        
+        策略：
+        1. 遍历所有 message，找到 role='user' 的消息
+        2. 如果内容包含 "用户需求:" 前缀（Agent 构造的 prompt），提取冒号后的部分
+        3. 否则直接取用户消息内容
+        """
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                # Agent 构造的 prompt 格式："用户需求: xxx\n\n可用工具:\n..."
+                if "用户需求:" in content:
+                    # 提取 "用户需求:" 到 "\n\n可用工具:" 之间的内容
+                    start = content.find("用户需求:") + len("用户需求:")
+                    end = content.find("\n\n可用工具:")
+                    if end > start:
+                        return content[start:end].strip()
+                    # 备选：只取第一行
+                    return content[start:].split("\n")[0].strip()
+                return content.strip()
+        return ""
+
     async def chat_completion(self, messages: List[Dict], **kwargs) -> Dict:
-        user_msg = messages[-1]["content"] if messages else ""
-        
-        # 简单的规则匹配，模拟智能回复
-        response = self._generate_mock_response(user_msg)
-        
+        user_query = self._extract_user_query(messages)
+        response = self._generate_mock_response(user_query)
         return {
             "choices": [{
                 "message": {
@@ -208,38 +255,77 @@ class MockLLMClient:
                 }
             }]
         }
-    
+
     async def chat_completion_stream(self, messages: List[Dict], **kwargs):
-        response = self._generate_mock_response(messages[-1]["content"] if messages else "")
+        user_query = self._extract_user_query(messages)
+        response = self._generate_mock_response(user_query)
         for word in response:
             yield word
-    
+
     async def simple_chat(self, user_message: str, system_prompt: Optional[str] = None) -> str:
         return self._generate_mock_response(user_message)
-    
-    def _generate_mock_response(self, user_input: str) -> str:
-        user_lower = user_input.lower()
-        
-        if any(k in user_lower for k in ["进程", "process", "僵尸", "zombie"]):
-            return '{"thought": "用户想了解进程信息，先获取进程列表", "action": "call_tool", "tool": "list_processes", "arguments": {"sort_by": "cpu", "limit": 20}, "risk_assessment": "safe", "explanation": "正在获取系统进程列表..."}'
-        elif any(k in user_lower for k in ["磁盘", "disk", "空间", "空间不足", "full"]):
-            return '{"thought": "用户关心磁盘空间，获取磁盘使用情况", "action": "call_tool", "tool": "get_disk_usage", "arguments": {}, "risk_assessment": "safe", "explanation": "正在检查磁盘使用情况..."}'
-        elif any(k in user_lower for k in ["内存", "memory", "mem"]):
-            return '{"thought": "用户想了解内存使用情况", "action": "call_tool", "tool": "get_memory_info", "arguments": {}, "risk_assessment": "safe", "explanation": "正在获取内存信息..."}'
-        elif any(k in user_lower for k in ["网络", "network", "端口", "port", "连接"]):
-            return '{"thought": "用户想了解网络状况", "action": "call_tool", "tool": "get_network_connections", "arguments": {"protocol": "all"}, "risk_assessment": "safe", "explanation": "正在检查网络连接..."}'
-        elif any(k in user_lower for k in ["日志", "log", "journal"]):
-            return '{"thought": "用户想查看日志", "action": "call_tool", "tool": "search_log", "arguments": {"keyword": "error", "source": "journalctl", "since": "1 hour ago", "limit": 50}, "risk_assessment": "safe", "explanation": "正在搜索近期错误日志..."}'
-        elif any(k in user_lower for k in ["诊断", "根因", "为什么", "问题", "故障", "排查", "分析", "慢", "卡顿", "异常"]):
-            return '{"thought": "用户请求诊断系统问题，使用综合智能诊断工具", "action": "call_tool", "tool": "comprehensive_diagnosis", "arguments": {"query": "' + user_input + '"}, "risk_assessment": "safe", "explanation": "正在进行综合根因分析..."}'
-        elif any(k in user_lower for k in ["磁盘诊断", "空间分析", "disk diagnose"]):
-            return '{"thought": "用户请求磁盘根因诊断", "action": "call_tool", "tool": "diagnose_disk", "arguments": {"mountpoint": "/"}, "risk_assessment": "safe", "explanation": "正在诊断磁盘空间问题..."}'
-        elif any(k in user_lower for k in ["进程诊断", "process diagnose", "僵尸进程分析"]):
-            return '{"thought": "用户请求进程根因诊断", "action": "call_tool", "tool": "diagnose_process", "arguments": {}, "risk_assessment": "safe", "explanation": "正在诊断进程问题..."}'
-        elif any(k in user_lower for k in ["性能诊断", "performance diagnose", "瓶颈分析"]):
-            return '{"thought": "用户请求性能根因诊断", "action": "call_tool", "tool": "diagnose_performance", "arguments": {}, "risk_assessment": "safe", "explanation": "正在诊断性能瓶颈..."}'
-        else:
-            return '{"thought": "用户请求不明确，尝试获取系统概览", "action": "call_tool", "tool": "get_system_info", "arguments": {}, "risk_assessment": "safe", "explanation": "正在获取系统基本信息..."}'
+
+    def _generate_mock_response(self, user_query: str) -> str:
+        """
+        基于用户原始查询生成模拟回复。
+        只匹配用户输入部分，避免被系统提示/工具描述干扰。
+        """
+        if not user_query:
+            return self._build_tool_response(
+                "get_system_info",
+                {},
+                "用户请求不明确，尝试获取系统概览",
+                "正在获取系统基本信息..."
+            )
+
+        query_lower = user_query.lower()
+
+        # 1. 先检查精确/长词匹配（避免短词误触发）
+        for keywords, tool_name, arguments in self._TOOL_KEYWORDS:
+            if any(kw.lower() in query_lower for kw in keywords):
+                # 如果是诊断类关键词，使用 comprehensive_diagnosis
+                if tool_name == "comprehensive_diagnosis":
+                    return self._build_tool_response(
+                        "comprehensive_diagnosis",
+                        {"query": user_query},
+                        "用户请求诊断系统问题，使用综合智能诊断工具",
+                        "正在进行综合根因分析..."
+                    )
+                return self._build_tool_response(
+                    tool_name, arguments,
+                    f"用户请求涉及 {keywords[0]}，调用对应工具",
+                    f"正在处理 {keywords[0]} 相关请求..."
+                )
+
+        # 2. 检查是否为通用诊断意图
+        if any(kw in query_lower for kw in self._DIAGNOSIS_KEYWORDS):
+            return self._build_tool_response(
+                "comprehensive_diagnosis",
+                {"query": user_query},
+                "用户请求诊断系统问题，使用综合智能诊断工具",
+                "正在进行综合根因分析..."
+            )
+
+        # 3. 兜底：系统概览
+        return self._build_tool_response(
+            "get_system_info",
+            {},
+            "用户请求不明确，尝试获取系统概览",
+            "正在获取系统基本信息..."
+        )
+
+    @staticmethod
+    def _build_tool_response(tool: str, arguments: Dict, thought: str, explanation: str) -> str:
+        """构建标准化的工具调用 JSON 响应"""
+        import json
+        return json.dumps({
+            "thought": thought,
+            "action": "call_tool",
+            "tool": tool,
+            "arguments": arguments,
+            "risk_assessment": "safe",
+            "explanation": explanation
+        }, ensure_ascii=False)
     
     async def close(self):
         pass
