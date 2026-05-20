@@ -38,6 +38,7 @@ class AuditConfig(BaseModel):
 class AuthConfig(BaseModel):
     session_ttl: int = 28800  # 8小时，单位秒
     enable_dev_token: bool = True  # 是否允许开发Token降级
+    cookie_secure: bool = False  # Cookie 是否启用 secure（HTTPS 环境设为 True）
 
 
 class MCPConfig(BaseModel):

@@ -132,13 +132,14 @@ async def login(request: LoginRequest, response: Response):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     sid = await session_auth.create(request.username)
+    config = get_config()
     response.set_cookie(
         key="ops_session",
         value=sid,
         httponly=True,
-        secure=True,         # 生产环境部署到 HTTPS 后必须改为 True
+        secure=config.auth.cookie_secure,  # 根据配置动态设置（HTTPS 环境设为 True）
         samesite="lax",
-        max_age=get_config().auth.session_ttl,
+        max_age=config.auth.session_ttl,
         path="/",
     )
     return LoginResponse(
