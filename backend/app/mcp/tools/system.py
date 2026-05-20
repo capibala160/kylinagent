@@ -138,16 +138,24 @@ class KernelLogTool(BaseTool):
                 ["dmesg", "--level=" + dmesg_level, "--no-pager", "-n", str(limit)],
                 capture_output=True, text=True, timeout=15
             )
+            output = result.stdout if result.returncode == 0 else result.stderr
             if result.returncode != 0:
                 # 尝试不带 --level 参数（老版本 dmesg）
-                result = subprocess.run(
-                    ["dmesg", "|", "tail", "-n", str(limit)],
-                    capture_output=True, text=True, timeout=15, shell=True
+                # 分两步执行：先 dmesg，再 tail，避免 shell=True
+                result2 = subprocess.run(
+                    ["dmesg"],
+                    capture_output=True, text=True, timeout=15
                 )
+                if result2.returncode == 0:
+                    lines = result2.stdout.strip().split("\n")
+                    output = "\n".join(lines[-limit:])
+                else:
+                    output = result2.stderr
+            else:
+                lines = output.strip().split("\n")
+                output = "\n".join(lines[-limit:])
             
-            output = result.stdout if result.returncode == 0 else result.stderr
-            lines = output.strip().split("\n")[-limit:]
-            text = f"内核日志 (级别: {level}, 最近 {len(lines)} 条):\n" + "\n".join(lines)
+            text = f"内核日志 (级别: {level}, 最近 {min(limit, len(output.split(chr(10))))} 条):\n{output}"
             return ToolCallResult(content=[TextContent(type="text", text=text)])
         except Exception as e:
             return ToolCallResult(
