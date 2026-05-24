@@ -1,0 +1,312 @@
+# =============================================================================
+# GitLab CI/CD 配置 - Kylin Safe Ops Agent
+# =============================================================================
+# 重要前提：
+#   1. 必须使用 Self-Hosted Runner（Shared Runner 不兼容麒麟 OS + LoongArch）
+#   2. Runner 需要注册在麒麟高级服务器版 V11 (kylin v10sp3 兼容) 上
+#   3. Runner 架构需匹配目标环境（LoongArch）
+#   4. Runner 用户需具备 sudo 权限（用于重启服务、创建目录）
+# =============================================================================
+
+variables:
+  # 部署目录（生产环境建议固定为 /opt/kylin-ops-agent）
+  DEPLOY_DIR: "/opt/kylin-ops-agent"
+  # 服务名称
+  SERVICE_NAME: "kylin-ops-agent"
+  # Python 虚拟环境路径
+  VENV_PATH: "$DEPLOY_DIR/backend/venv"
+  # pip 缓存目录
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  # Node 模块缓存
+  NPM_CACHE_DIR: "$CI_PROJECT_DIR/.cache/npm"
+
+# -----------------------------------------------------------------------------
+# 缓存配置：加速后续构建
+# -----------------------------------------------------------------------------
+cache:
+  key: "$CI_COMMIT_REF_SLUG"
+  paths:
+    - .cache/pip/
+    - .cache/npm/
+    - backend/venv/
+    - frontend/node_modules/
+
+# -----------------------------------------------------------------------------
+# 阶段定义
+# -----------------------------------------------------------------------------
+stages:
+  - build
+  - test
+  - deploy
+
+# -----------------------------------------------------------------------------
+# 构建阶段：后端依赖 + 前端资源
+# -----------------------------------------------------------------------------
+build:backend:
+  stage: build
+  tags:
+    # 请替换为你实际注册的 Runner Tag，建议按环境区分
+    - kylin
+    - loongarch
+  before_script:
+    - python3 --version
+    - python3 -m venv backend/venv
+    - source backend/venv/bin/activate
+  script:
+    - cd backend
+    - pip install -r requirements.txt
+    - mkdir -p logs/audit
+  artifacts:
+    paths:
+      - backend/venv/
+      - backend/logs/
+    expire_in: 1 hour
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+build:frontend:
+  stage: build
+  tags:
+    - kylin
+    - loongarch
+  before_script:
+    # 检查 Node 环境（麒麟系统可能需要手动安装 node）
+    - |
+      if ! command -v node &> /dev/null; then
+        echo "警告: 未找到 node，跳过前端构建（若前端无需打包可忽略）"
+        exit 0
+      fi
+    - node --version
+    - npm --version
+  script:
+    - cd frontend
+    - npm ci --cache $NPM_CACHE_DIR --prefer-offline || npm install --cache $NPM_CACHE_DIR
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist/
+      - frontend/node_modules/
+    expire_in: 1 hour
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  allow_failure: true  # 前端构建失败不阻塞部署（本项目前端为原生 HTML/JS，非必须构建）
+
+# -----------------------------------------------------------------------------
+# 测试阶段：基础健康检查
+# -----------------------------------------------------------------------------
+test:lint:
+  stage: test
+  tags:
+    - kylin
+    - loongarch
+  script:
+    - source backend/venv/bin/activate
+    - cd backend
+    # 简单的 Python 语法检查
+    - python3 -m compileall app/
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+test:healthcheck:
+  stage: test
+  tags:
+    - kylin
+    - loongarch
+  script:
+    - |
+      # 临时启动服务进行健康检查（仅验证能否正常启动）
+      source backend/venv/bin/activate
+      cd backend
+      mkdir -p logs/audit
+      # 后台启动
+      python3 -m uvicorn app.main:app --host 127.0.0.1 --port 9999 &
+      PID=$!
+      sleep 5
+      # 健康检查
+      curl -sf http://127.0.0.1:9999/api/health || {
+        echo "健康检查失败"
+        kill $PID || true
+        exit 1
+      }
+      # 清理
+      kill $PID || true
+      echo "健康检查通过"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+  allow_failure: true
+
+# -----------------------------------------------------------------------------
+# 部署阶段：开发环境（直接启动）
+# -----------------------------------------------------------------------------
+deploy:dev:
+  stage: deploy
+  tags:
+    - kylin
+    - loongarch
+    - dev  # 开发环境 Runner 标签
+  environment:
+    name: development
+    url: http://$CI_SERVER_HOST:8000
+  before_script:
+    - echo "部署到开发环境..."
+  script:
+    # 方式 A：Runner 与目标机器为同一台（本地部署）
+    - |
+      if [ "$DEPLOY_MODE" != "remote" ]; then
+        # 创建部署目录
+        sudo mkdir -p $DEPLOY_DIR
+        # 使用 rsync 同步代码（排除 .git、venv 等）
+        sudo rsync -av --delete \
+          --exclude='.git/' \
+          --exclude='.cache/' \
+          --exclude='backend/venv/' \
+          --exclude='frontend/node_modules/' \
+          --exclude='*.pyc' \
+          --exclude='__pycache__/' \
+          ./ $DEPLOY_DIR/
+        
+        # 重建虚拟环境并安装依赖
+        sudo bash -c "cd $DEPLOY_DIR/backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+        
+        # 创建日志目录
+        sudo mkdir -p $DEPLOY_DIR/backend/logs/audit
+        sudo chmod 755 $DEPLOY_DIR/backend/logs
+        
+        # 确保 opsagent 用户存在（如配置中指定）
+        id -u opsagent &>/dev/null || sudo useradd -r -s /bin/bash -m opsagent || true
+        
+        # 重启开发服务（使用 nohup 或 screen，或使用 systemd 用户服务）
+        # 如果使用 systemd，请改用 deploy:prod 的脚本
+        echo "开发环境部署完成。请手动启动服务或使用 systemd。"
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+  when: manual  # 手动触发，防止误部署
+
+# -----------------------------------------------------------------------------
+# 部署阶段：生产环境（systemd 服务）
+# -----------------------------------------------------------------------------
+deploy:prod:
+  stage: deploy
+  tags:
+    - kylin
+    - loongarch
+    - prod  # 生产环境 Runner 标签
+  environment:
+    name: production
+    url: http://$CI_SERVER_HOST:8000
+  before_script:
+    - echo "部署到生产环境..."
+    # 确保配置已设置（建议在 CI/CD Variables 中设置，或在服务器上预先配置）
+    - |
+      if [ ! -f "$DEPLOY_DIR/config/agent.yaml" ]; then
+        echo "注意：首次部署将在同步后使用仓库中的 config/agent.yaml"
+      fi
+  script:
+    # -------------------------------------------------------------------------
+    # 生产部署步骤（Runner 与目标机器为同一台，或已配置免密 SSH）
+    # -------------------------------------------------------------------------
+    - |
+      # 1. 同步代码到部署目录
+      sudo mkdir -p $DEPLOY_DIR
+      sudo rsync -av --delete \
+        --exclude='.git/' \
+        --exclude='.cache/' \
+        --exclude='backend/venv/' \
+        --exclude='frontend/node_modules/' \
+        --exclude='*.pyc' \
+        --exclude='__pycache__/' \
+        --exclude='.gitlab-ci.yml' \
+        ./ $DEPLOY_DIR/
+      
+      # 2. 安装/更新依赖
+      sudo bash -c "cd $DEPLOY_DIR/backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+      
+      # 3. 创建必要的目录和权限
+      sudo mkdir -p $DEPLOY_DIR/backend/logs/audit
+      sudo chmod 755 $DEPLOY_DIR/backend/logs
+      sudo chown -R opsagent:opsagent $DEPLOY_DIR || true
+      
+      # 4. 确保 opsagent 用户存在
+      id -u opsagent &>/dev/null || sudo useradd -r -s /bin/bash -m opsagent
+      
+      # 5. 配置 systemd 服务（如果不存在）
+      if [ ! -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
+        echo "创建 systemd 服务..."
+        sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null <<EOF
+      [Unit]
+      Description=Kylin Safe Ops Agent
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=opsagent
+      WorkingDirectory=${DEPLOY_DIR}/backend
+      Environment="PATH=${DEPLOY_DIR}/backend/venv/bin"
+      Environment="CONFIG_PATH=${DEPLOY_DIR}/config/agent.yaml"
+      Environment="CORS_ORIGINS=${CORS_ORIGINS:-}"
+      ExecStart=${DEPLOY_DIR}/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+      ExecReload=/bin/kill -HUP \$MAINPID
+      Restart=always
+      RestartSec=5
+      KillMode=mixed
+      TimeoutStopSec=30
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+        sudo systemctl daemon-reload
+        sudo systemctl enable ${SERVICE_NAME}
+      fi
+      
+      # 6. 重启服务
+      sudo systemctl restart ${SERVICE_NAME}
+      sleep 3
+      sudo systemctl status ${SERVICE_NAME} --no-pager
+      
+      # 7. 健康检查
+      echo "等待服务启动..."
+      for i in {1..10}; do
+        if curl -sf http://localhost:8000/api/health > /dev/null; then
+          echo "✅ 服务健康检查通过"
+          exit 0
+        fi
+        sleep 2
+      done
+      echo "❌ 服务健康检查失败，请查看日志：sudo journalctl -u ${SERVICE_NAME} -n 50"
+      exit 1
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  when: manual  # 生产环境必须手动触发
+
+# =============================================================================
+# 远程部署扩展（Runner 与目标机器分离时使用）
+# =============================================================================
+# 如需通过 SSH 部署到远程服务器，请按以下步骤配置：
+#
+# 1. 在 GitLab 项目设置 -> CI/CD -> Variables 中添加：
+#    SSH_PRIVATE_KEY: 用于登录目标服务器的私钥
+#    DEPLOY_HOST:     目标服务器 IP/域名
+#    DEPLOY_USER:     登录用户名（需有 sudo 权限）
+#
+# 2. 在 before_script 中添加 SSH 配置：
+#    - 'which ssh-agent || ( sudo yum install -y openssh-clients )'
+#    - eval $(ssh-agent -s)
+#    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+#    - mkdir -p ~/.ssh
+#    - chmod 700 ~/.ssh
+#    - ssh-keyscan $DEPLOY_HOST >> ~/.ssh/known_hosts
+#
+# 3. 将 rsync 命令改为通过 SSH 执行：
+#    - rsync -avz -e "ssh -o StrictHostKeyChecking=no" \
+#        --exclude='.git/' ... ./ $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/
+#    - ssh $DEPLOY_USER@$DEPLOY_HOST "sudo systemctl restart ${SERVICE_NAME}"
+#
+# =============================================================================
