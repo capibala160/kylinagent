@@ -126,6 +126,31 @@ function setupEventListeners() {
         chainModal.classList.remove('active');
     });
     
+    // 确认弹窗关闭按钮
+    document.getElementById('closeConfirmModal').addEventListener('click', () => {
+        document.getElementById('cancelBtn').click();
+    });
+    
+    // 点击遮罩层关闭弹窗
+    confirmModal.addEventListener('click', (e) => {
+        if (e.target === confirmModal) document.getElementById('cancelBtn').click();
+    });
+    chainModal.addEventListener('click', (e) => {
+        if (e.target === chainModal) chainModal.classList.remove('active');
+    });
+    
+    // ESC 键关闭弹窗
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (confirmModal.classList.contains('active')) {
+                document.getElementById('cancelBtn').click();
+            }
+            if (chainModal.classList.contains('active')) {
+                chainModal.classList.remove('active');
+            }
+        }
+    });
+    
     // 审计刷新
     document.getElementById('refreshAudit').addEventListener('click', loadAuditLogs);
     document.getElementById('auditFilter').addEventListener('change', loadAuditLogs);
@@ -235,7 +260,13 @@ async function sendMessage(messageOverride = null, confirmed = false) {
             // 需要确认
             pendingConfirm = { message };
             document.getElementById('confirmMessage').textContent = data.message;
-            document.getElementById('riskDetails').textContent = data.confirm_reason || '';
+            const riskDetails = document.getElementById('riskDetails');
+            if (data.confirm_reason) {
+                riskDetails.textContent = data.confirm_reason;
+                riskDetails.style.display = 'block';
+            } else {
+                riskDetails.style.display = 'none';
+            }
             confirmModal.classList.add('active');
             
             addMessage('assistant', data.message, {
@@ -323,7 +354,8 @@ function addMessage(role, content, meta = {}) {
     }
     
     // 消息内容（支持 Markdown 简单渲染）
-    contentDiv.innerHTML += renderMarkdown(content);
+    // 使用 insertAdjacentHTML 避免 DOM 重解析导致已有子节点事件丢失
+    contentDiv.insertAdjacentHTML('beforeend', renderMarkdown(content));
     
     // 链路追踪链接
     if (meta.chainId) {
@@ -338,6 +370,54 @@ function addMessage(role, content, meta = {}) {
     div.appendChild(contentDiv);
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // 增强：为代码块添加复制按钮
+    contentDiv.querySelectorAll('pre').forEach(pre => {
+        pre.style.position = 'relative';
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'code-copy-btn';
+        copyBtn.textContent = '复制';
+        copyBtn.addEventListener('click', () => {
+            const code = pre.querySelector('code');
+            const text = code ? code.textContent : pre.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                copyBtn.textContent = '已复制';
+                setTimeout(() => copyBtn.textContent = '复制', 1500);
+            }).catch(() => {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                copyBtn.textContent = '已复制';
+                setTimeout(() => copyBtn.textContent = '复制', 1500);
+            });
+        });
+        pre.appendChild(copyBtn);
+    });
+    
+    // 增强：超长消息折叠
+    const maxMsgHeight = 400;
+    if (contentDiv.scrollHeight > maxMsgHeight && !meta.loading) {
+        contentDiv.classList.add('collapsed');
+        const expandBtn = document.createElement('button');
+        expandBtn.className = 'msg-expand-btn';
+        expandBtn.textContent = '展开更多';
+        expandBtn.addEventListener('click', () => {
+            contentDiv.classList.remove('collapsed');
+            expandBtn.remove();
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        });
+        div.appendChild(expandBtn);
+    }
+    
+    // 增强：图片加载完成后重新滚动
+    contentDiv.querySelectorAll('img').forEach(img => {
+        img.addEventListener('load', () => {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        });
+    });
     
     return div;
 }
@@ -470,13 +550,17 @@ async function loadTools() {
     try {
         const data = await apiGet('/tools');
         
+        if (!data.tools || data.tools.length === 0) {
+            grid.innerHTML = '<p class="empty-state">暂无工具</p>';
+            return;
+        }
         grid.innerHTML = data.tools.map(tool => `
             <div class="tool-card">
-                <h4>${tool.name}</h4>
-                <p>${tool.description}</p>
+                <h4>${escapeHtml(tool.name)}</h4>
+                <p>${escapeHtml(tool.description)}</p>
                 <div class="tool-card-params">
                     参数: ${Object.keys(tool.parameters.properties || {}).map(p => 
-                        `<code>${p}</code>`
+                        `<code>${escapeHtml(p)}</code>`
                     ).join(', ') || '无'}
                 </div>
             </div>
@@ -498,15 +582,15 @@ async function loadConfig() {
                 <h3>Agent 信息</h3>
                 <div class="config-row">
                     <span class="config-label">名称</span>
-                    <span class="config-value">${data.agent.name}</span>
+                    <span class="config-value">${escapeHtml(data.agent.name || '')}</span>
                 </div>
                 <div class="config-row">
                     <span class="config-label">版本</span>
-                    <span class="config-value">${data.agent.version}</span>
+                    <span class="config-value">${escapeHtml(data.agent.version || '')}</span>
                 </div>
                 <div class="config-row">
                     <span class="config-label">描述</span>
-                    <span class="config-value">${data.agent.description}</span>
+                    <span class="config-value">${escapeHtml(data.agent.description || '')}</span>
                 </div>
             </div>
             
@@ -514,11 +598,11 @@ async function loadConfig() {
                 <h3>LLM 配置</h3>
                 <div class="config-row">
                     <span class="config-label">提供商</span>
-                    <span class="config-value">${data.llm.provider}</span>
+                    <span class="config-value">${escapeHtml(data.llm.provider || '')}</span>
                 </div>
                 <div class="config-row">
                     <span class="config-label">模型</span>
-                    <span class="config-value">${data.llm.model}</span>
+                    <span class="config-value">${escapeHtml(data.llm.model || '')}</span>
                 </div>
             </div>
             
@@ -526,11 +610,11 @@ async function loadConfig() {
                 <h3>安全配置</h3>
                 <div class="config-row">
                     <span class="config-label">受限用户</span>
-                    <span class="config-value">${data.security.restricted_user}</span>
+                    <span class="config-value">${escapeHtml(data.security.restricted_user || '')}</span>
                 </div>
                 <div class="config-row">
                     <span class="config-label">规则数量</span>
-                    <span class="config-value">${data.security.rule_count}</span>
+                    <span class="config-value">${data.security.rule_count !== undefined ? data.security.rule_count : 'N/A'}</span>
                 </div>
             </div>
             
@@ -538,11 +622,11 @@ async function loadConfig() {
                 <h3>审计配置</h3>
                 <div class="config-row">
                     <span class="config-label">日志目录</span>
-                    <span class="config-value">${data.audit.log_dir}</span>
+                    <span class="config-value">${escapeHtml(data.audit.log_dir || '')}</span>
                 </div>
                 <div class="config-row">
                     <span class="config-label">保留天数</span>
-                    <span class="config-value">${data.audit.retention_days}</span>
+                    <span class="config-value">${data.audit.retention_days !== undefined ? data.audit.retention_days : 'N/A'}</span>
                 </div>
             </div>
         `;

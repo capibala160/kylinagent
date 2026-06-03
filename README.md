@@ -11,6 +11,37 @@
 - 📋 **推理链路溯源**：完整记录"接收指令 → 感知环境 → 推理决策 → 安全校验 → 执行结果"闭环
 - ⚡ **B/S 架构**：Web 界面交互，支持国产 LoongArch 架构 + 麒麟服务器 V11
 
+## 比赛环境快速部署
+
+### 一键部署（推荐）
+
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
+
+部署脚本会自动完成：环境检查、依赖安装、服务启动、健康检查。
+
+### 手动部署
+
+```bash
+cd backend
+chmod +x run.sh
+./run.sh
+```
+
+### 默认账号
+
+- 用户名：`opsadmin`
+- 密码：`KylinOps@2024`
+- 可通过环境变量修改：`OPS_ADMIN_USER` / `OPS_ADMIN_PASS`
+
+### 关于 LLM 配置
+
+- **有模型服务**：修改 `config/agent.yaml` 中的 `api_base` 和 `api_key`
+- **无模型服务**：保持默认即可，系统会自动回退到 **Mock 模式**
+- Mock 模式已内置支持所有运维测试用例（ps/df/free/内存/CPU/网络/进程/日志/诊断等）
+
 ## 快速开始
 
 ### 环境要求
@@ -58,7 +89,9 @@ kylin-ops-agent/
 │   │   │       ├── process.py   # 进程管理工具
 │   │   │       ├── network.py   # 网络诊断工具
 │   │   │       ├── disk.py      # 磁盘管理工具
-│   │   │       └── file.py      # 文件日志工具
+│   │   │       ├── file.py      # 文件日志工具
+│   │   │       ├── service.py   # 服务管理工具
+│   │   │       └── diagnose.py  # 智能诊断工具
 │   │   ├── security/
 │   │   │   ├── guard.py         # 安全护栏核心
 │   │   │   ├── rules.py         # 风险规则引擎
@@ -75,10 +108,14 @@ kylin-ops-agent/
 │   └── run.sh
 ├── frontend/
 │   ├── index.html               # Web 界面
+│   ├── login.html               # 登录页面
 │   ├── style.css
-│   └── app.js
+│   ├── app.js
+│   ├── marked.min.js
+│   └── purify.min.js
 ├── config/
 │   └── agent.yaml               # Agent 配置文件
+├── deploy.sh                    # 一键部署脚本（比赛环境）
 └── docs/                        # 文档
 ```
 

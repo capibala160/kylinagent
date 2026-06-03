@@ -34,6 +34,43 @@ class OpsAgent:
     # pending 确认超时时间（秒）
     PENDING_CONFIRM_TIMEOUT = 300
     
+    async def _execute_tool(self, tool, arguments: Dict[str, Any]):
+        """
+        执行工具，对于高风险操作使用 PrivilegeExecutor 进行权限隔离。
+        体现"最小权限执行"设计：kill 等危险命令通过受限用户执行。
+        """
+        from ..mcp.schema import ToolCallResult, TextContent
+        
+        if tool.name == "kill_process":
+            pid = arguments.get("pid")
+            signal = arguments.get("signal", "SIGTERM")
+            sig_map = {"SIGTERM": "-15", "SIGKILL": "-9", "SIGINT": "-2"}
+            sig_flag = sig_map.get(signal, "-15")
+            
+            try:
+                exec_result = self.executor.execute(f"kill {sig_flag} {pid}", timeout=5)
+                
+                if exec_result.get("success"):
+                    return ToolCallResult(
+                        content=[TextContent(type="text", text=exec_result.get("stdout", f"成功发送 {signal} 信号到进程 {pid}"))],
+                        isError=False
+                    )
+                else:
+                    return ToolCallResult(
+                        content=[TextContent(type="text", text=exec_result.get("stderr", f"终止进程失败"))],
+                        isError=True,
+                        errorMessage=exec_result.get("stderr", "未知错误")
+                    )
+            except Exception as e:
+                return ToolCallResult(
+                    content=[TextContent(type="text", text=f"权限执行器异常: {str(e)}")],
+                    isError=True,
+                    errorMessage=str(e)
+                )
+        
+        # 其他工具直接执行
+        return await tool.safe_execute(arguments)
+    
     async def process(self, user_input: str, session_id: str = "default",
                       confirmed: bool = False, session=None,
                       user: str = "") -> Dict[str, Any]:
@@ -197,7 +234,7 @@ class OpsAgent:
                     continue
                 
                 exec_start = time.time()
-                result = await tool.safe_execute(arguments)
+                result = await self._execute_tool(tool, arguments)
                 exec_duration = (time.time() - exec_start) * 1000
                 
                 chain.add_node(
@@ -448,7 +485,7 @@ class OpsAgent:
                 continue
             
             exec_start = time.time()
-            result = await tool.safe_execute(arguments)
+            result = await self._execute_tool(tool, arguments)
             exec_duration = (time.time() - exec_start) * 1000
             
             chain.add_node(

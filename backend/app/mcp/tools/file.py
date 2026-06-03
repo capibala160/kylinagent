@@ -204,6 +204,13 @@ class SearchLogTool(BaseTool):
                     ["journalctl", "--since", since, "-g", keyword, "--no-pager", "-n", str(limit)],
                     capture_output=True, text=True, timeout=30
                 )
+                if result.returncode != 0 and "journalctl" in result.stderr.lower():
+                    # journalctl 不可用（如非 systemd 环境）
+                    return ToolCallResult(
+                        content=[TextContent(type="text", text=f"journalctl 不可用（当前环境可能不支持 systemd）:\n{result.stderr}")],
+                        isError=True
+                    )
+                output = result.stdout if result.returncode in [0, 1] else result.stderr
             else:
                 # 文件搜索
                 if not os.path.exists(source):
@@ -219,7 +226,6 @@ class SearchLogTool(BaseTool):
                 output = "\n".join(lines)
                 return ToolCallResult(content=[TextContent(type="text", text=output)])
             
-            output = result.stdout if result.returncode in [0, 1] else result.stderr
             return ToolCallResult(content=[TextContent(type="text", text=output)])
         except Exception as e:
             return ToolCallResult(
@@ -251,6 +257,11 @@ class SystemctlStatusTool(BaseTool):
                 ["systemctl", "status", service, "--no-pager"],
                 capture_output=True, text=True, timeout=10
             )
+            if result.returncode != 0 and "systemctl" in result.stderr.lower():
+                return ToolCallResult(
+                    content=[TextContent(type="text", text=f"systemd 不可用（当前环境可能不支持 systemd）:\n{result.stderr}")],
+                    isError=True
+                )
             output = result.stdout if result.stdout else result.stderr
             return ToolCallResult(content=[TextContent(type="text", text=output)])
         except Exception as e:

@@ -1,4 +1,5 @@
 import subprocess
+import os
 from typing import Any, Dict
 from .base import BaseTool, register_tool
 from ..schema import ToolCallResult, TextContent
@@ -70,17 +71,37 @@ class ProcessDetailTool(BaseTool):
                                           capture_output=True, text=True, timeout=5)
             status = status_result.stdout if status_result.returncode == 0 else "无法读取进程状态"
             
-            # 打开的文件
+            # 打开的文件：优先 lsof，fallback 到 /proc/{pid}/fd
+            lsof = ""
             lsof_result = subprocess.run(["lsof", "-p", str(pid)], 
                                         capture_output=True, text=True, timeout=10)
-            lsof = lsof_result.stdout[:3000] if lsof_result.returncode == 0 else "无法获取打开文件列表"
+            if lsof_result.returncode == 0:
+                lsof = lsof_result.stdout[:3000]
+            else:
+                # fallback: 读取 /proc/{pid}/fd
+                try:
+                    fd_dir = f"/proc/{pid}/fd"
+                    if os.path.isdir(fd_dir):
+                        fds = os.listdir(fd_dir)
+                        fd_links = []
+                        for fd in sorted(fds)[:50]:
+                            try:
+                                target = os.readlink(os.path.join(fd_dir, fd))
+                                fd_links.append(f"{fd} -> {target}")
+                            except Exception:
+                                fd_links.append(f"{fd} -> ?")
+                        lsof = f"/proc/{pid}/fd 打开的文件描述符 (Top 50):\n" + "\n".join(fd_links)
+                    else:
+                        lsof = "无法获取打开文件列表（lsof 不可用且 /proc/{pid}/fd 不可访问）"
+                except Exception as e2:
+                    lsof = f"无法获取打开文件列表: {str(e2)}"
             
             text = f"""进程 {pid} 详细信息:
 
 --- /proc/{pid}/status ---
 {status}
 
---- 打开的文件 (lsof -p {pid}) ---
+--- 打开的文件 ---
 {lsof}
 """
             return ToolCallResult(content=[TextContent(type="text", text=text)])

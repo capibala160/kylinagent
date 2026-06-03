@@ -16,7 +16,7 @@ class DiskUsageTool(BaseTool):
             df_output = result.stdout if result.returncode == 0 else ""
             
             result2 = subprocess.run(["lsblk"], capture_output=True, text=True, timeout=5)
-            lsblk_output = result2.stdout if result2.returncode == 0 else ""
+            lsblk_output = result2.stdout if result2.returncode == 0 else "lsblk 命令不可用"
             
             text = f"""磁盘分区使用情况:
 {df_output}
@@ -109,11 +109,14 @@ class IOTool(BaseTool):
     async def execute(self, arguments: Dict[str, Any]) -> ToolCallResult:
         try:
             result = subprocess.run(["iostat", "-x", "1", "3"], capture_output=True, text=True, timeout=15)
-            iostat = result.stdout if result.returncode == 0 else "iostat 未安装或执行失败"
+            if result.returncode != 0:
+                iostat = f"iostat 未安装或执行失败（提示: 可尝试安装 sysstat 包）\n{result.stderr}"
+            else:
+                iostat = result.stdout
             
             # vmstat 中的 io 信息
             result2 = subprocess.run(["vmstat", "-d"], capture_output=True, text=True, timeout=5)
-            vmstat = result2.stdout if result2.returncode == 0 else ""
+            vmstat = result2.stdout if result2.returncode == 0 else f"vmstat 执行失败: {result2.stderr}"
             
             text = f"""磁盘 I/O 统计 (iostat):
 {iostat}
@@ -209,11 +212,11 @@ def parse_size(size_str: str) -> float:
         if size_str.endswith(unit):
             try:
                 return float(size_str[:-1]) * factor
-            except:
+            except Exception:
                 return 0
     try:
         return float(size_str)
-    except:
+    except Exception:
         return 0
 
 

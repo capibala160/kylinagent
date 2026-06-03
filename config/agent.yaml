@@ -1,4 +1,5 @@
-# Kylin Ops Agent 配置文件
+# Kylin Ops Agent 配置文件（比赛环境适配版）
+# 修改后无需重启，配置会在下次请求时自动加载
 
 # Agent 基础配置
 agent:
@@ -7,9 +8,13 @@ agent:
   description: "面向麒麟操作系统的安全智能运维Agent"
   
 # LLM 配置
+# 比赛环境说明：
+# - 如果提供了 LLM API，请修改 api_base 和 api_key
+# - 如果没有 LLM，保持默认即可，系统会自动回退到 Mock 模式
+# - Mock 模式已内置支持所有运维测试用例（ps/df/free/内存/CPU/网络/进程/日志等）
 llm:
-  provider: "openai_compatible"  # 支持 openai_compatible / deepseek / qwen 等
-  api_base: "http://localhost:8000/v1"  # 本地模型服务地址
+  provider: "openai_compatible"
+  api_base: "http://localhost:8000/v1"
   api_key: "sk-dummy"
   model: "deepseek-chat"
   temperature: 0.3
@@ -42,6 +47,9 @@ security:
     - "systemctl\\s+(stop|restart)"
   
   # 最小权限执行用户
+  # 说明：
+  # - 若该用户存在，命令将以此用户身份运行
+  # - 若不存在，自动降级为当前用户执行（比赛环境常见情况）
   restricted_user: "opsagent"
   
   # 允许执行的命令白名单前缀
@@ -80,6 +88,12 @@ security:
     - "tail"
     - "head"
     - "wc"
+    - "getenforce"
+    - "sestatus"
+    - "crontab"
+    - "getent"
+    - "useradd"
+    - "kill"
 
 # 审计配置
 audit:
@@ -87,3 +101,9 @@ audit:
   log_level: "INFO"
   retention_days: 90
   enable_console: true
+
+# 认证配置
+auth:
+  session_ttl: 28800  # 8小时，单位秒
+  enable_dev_token: false  # 比赛环境禁用开发Token，确保安全
+  cookie_secure: false     # HTTP环境设为false，HTTPS环境设为true

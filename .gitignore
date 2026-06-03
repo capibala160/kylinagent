@@ -15,6 +15,9 @@ ENV/
 logs/
 *.log
 
+# Database
+backend/data/
+
 # IDE
 .vscode/
 .idea/
@@ -28,3 +31,7 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Node
+frontend/node_modules/
+frontend/dist/

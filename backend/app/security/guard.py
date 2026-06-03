@@ -39,6 +39,7 @@ class SecurityGuard:
         """
         # 1. 检查提示词注入
         injection_patterns = [
+            # 英文注入模式
             r"ignore\s+(all\s+)?previous\s+instructions",
             r"disregard\s+.*(safety|security|rules)",
             r"forget\s+.*(prompt|instruction|rule)",
@@ -46,7 +47,24 @@ class SecurityGuard:
             r"DAN\s+mode|developer\s+mode|jailbreak",
             r"system\s*:\s*you\s+are\s+an\s+unrestricted",
             r"</?system>",
-            r"新纪元|忽略之前|忘掉设定",
+            r"from\s+now\s+on\s+you\s+are",
+            r"ignore\s+the\s+above",
+            r"do\s+not\s+follow\s+.*rules",
+            r"bypass\s+.*(restriction|filter|security)",
+            r"act\s+as\s+if\s+.*no\s+rules",
+            # 中文注入模式
+            r"新纪元|忽略之前|忘掉设定|忘记设定",
+            r"忽略以上|忽略上述|忽略前面的",
+            r"不用遵守|不必遵守|无视规则",
+            r"绕过限制|绕过安全|绕过防护",
+            r"你现在是一个|你现在是|切换成",
+            r"解除限制|取消限制|突破限制",
+            r"假装你是|扮演|角色扮演",
+            r"系统提示|system提示|系统指令",
+            r"以上都不要管|以上都是错的",
+            r"请直接执行|不要检查|不要校验",
+            r"删除所有|清空所有|格式化所有",
+            r"关闭安全|关闭防护|关闭检查",
         ]
         
         for pattern in injection_patterns:
@@ -85,7 +103,8 @@ class SecurityGuard:
             "tool_name": tool_name,
             "risk_level": "safe",
             "matched_rules": [],
-            "whitelist_check": False
+            "whitelist_check": False,
+            "sanitized_command": self.sanitize_command(command),
         }
         
         # 1. 规则引擎评估

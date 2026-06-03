@@ -14,15 +14,31 @@ class SystemInfoTool(BaseTool):
     async def execute(self, arguments: Dict[str, Any]) -> ToolCallResult:
         try:
             uname = platform.uname()
-            uptime_result = subprocess.run(["uptime", "-p"], capture_output=True, text=True, timeout=5)
-            uptime = uptime_result.stdout.strip() if uptime_result.returncode == 0 else "未知"
+            # uptime -p 在老版本或某些系统上不可用，fallback 到 uptime
+            uptime = "未知"
+            for cmd in [["uptime", "-p"], ["uptime"]]:
+                try:
+                    uptime_result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                    if uptime_result.returncode == 0:
+                        uptime = uptime_result.stdout.strip()
+                        break
+                except Exception:
+                    continue
             
             # 尝试读取 /etc/os-release 获取更详细的系统信息
             os_info = ""
             try:
-                with open("/etc/os-release", "r") as f:
+                with open("/etc/os-release", "r", encoding="utf-8", errors="replace") as f:
                     os_info = f.read()
-            except:
+            except Exception:
+                pass
+            
+            # 尝试读取 /etc/kylin-release
+            kylin_info = ""
+            try:
+                with open("/etc/kylin-release", "r", encoding="utf-8", errors="replace") as f:
+                    kylin_info = f.read().strip()
+            except Exception:
                 pass
             
             text = f"""系统基本信息:
@@ -32,6 +48,9 @@ class SystemInfoTool(BaseTool):
 - 架构: {uname.machine}
 - 内核: {uname.release}
 - 运行时间: {uptime}
+
+/etc/kylin-release 内容:
+{kylin_info or '无'}
 
 /etc/os-release 内容:
 {os_info}
@@ -78,9 +97,9 @@ class CPUInfoTool(BaseTool):
             
             loadavg = ""
             try:
-                with open("/proc/loadavg", "r") as f:
+                with open("/proc/loadavg", "r", encoding="utf-8") as f:
                     loadavg = f.read().strip()
-            except:
+            except Exception:
                 pass
             
             text = f"CPU 信息:\n{cpuinfo}\n\n系统负载 (1/5/15分钟): {loadavg}"
@@ -134,14 +153,15 @@ class KernelLogTool(BaseTool):
         dmesg_level = level_map.get(level, "err")
         
         try:
+            # 先尝试带 --level 参数（新版本 dmesg）
             result = subprocess.run(
                 ["dmesg", "--level=" + dmesg_level, "--no-pager", "-n", str(limit)],
                 capture_output=True, text=True, timeout=15
             )
-            output = result.stdout if result.returncode == 0 else result.stderr
+            output = result.stdout if result.returncode == 0 else ""
+            
             if result.returncode != 0:
-                # 尝试不带 --level 参数（老版本 dmesg）
-                # 分两步执行：先 dmesg，再 tail，避免 shell=True
+                # 回退到基础 dmesg + tail
                 result2 = subprocess.run(
                     ["dmesg"],
                     capture_output=True, text=True, timeout=15
@@ -150,7 +170,7 @@ class KernelLogTool(BaseTool):
                     lines = result2.stdout.strip().split("\n")
                     output = "\n".join(lines[-limit:])
                 else:
-                    output = result2.stderr
+                    output = f"dmesg 不可用: {result2.stderr}"
             else:
                 lines = output.strip().split("\n")
                 output = "\n".join(lines[-limit:])
@@ -186,17 +206,25 @@ class LoginHistoryTool(BaseTool):
         limit = arguments.get("limit", 30)
         
         try:
+            output = ""
+            header = ""
+            
             if record_type == "failed":
                 result = subprocess.run(
                     ["lastb", "-n", str(limit)],
                     capture_output=True, text=True, timeout=10
                 )
+                if result.returncode != 0 and "btmp" in result.stderr.lower():
+                    output = "无失败登录记录（btmp 日志为空或权限不足）"
+                else:
+                    output = result.stdout if result.returncode == 0 else result.stderr
                 header = "失败登录记录 (lastb):"
             elif record_type == "success":
                 result = subprocess.run(
                     ["last", "-n", str(limit)],
                     capture_output=True, text=True, timeout=10
                 )
+                output = result.stdout if result.returncode == 0 else result.stderr
                 header = "成功登录记录 (last):"
             else:
                 result_success = subprocess.run(
@@ -207,12 +235,12 @@ class LoginHistoryTool(BaseTool):
                     ["lastb", "-n", str(limit)],
                     capture_output=True, text=True, timeout=10
                 )
-                output = f"--- 成功登录 ---\n{result_success.stdout}\n--- 失败登录 ---\n{result_failed.stdout}"
+                failed_out = result_failed.stdout
+                if result_failed.returncode != 0 and "btmp" in result_failed.stderr.lower():
+                    failed_out = "无失败登录记录（btmp 日志为空或权限不足）"
+                output = f"--- 成功登录 ---\n{result_success.stdout}\n--- 失败登录 ---\n{failed_out}"
                 header = "登录历史记录:"
-                text = f"{header}\n{output}"
-                return ToolCallResult(content=[TextContent(type="text", text=text)])
             
-            output = result.stdout if result.returncode == 0 else result.stderr
             text = f"{header}\n{output}"
             return ToolCallResult(content=[TextContent(type="text", text=text)])
         except Exception as e:

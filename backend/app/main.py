@@ -85,6 +85,21 @@ async def root():
     return html_content
 
 
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时初始化资源"""
+    # 初始化数据库
+    from app.db import init_db
+    await init_db()
+    
+    # 初始化默认管理员账号
+    from app.auth.session import get_session_auth
+    auth = get_session_auth()
+    await auth.init_default_user()
+    
+    print("✅ 启动完成: 数据库已初始化，默认管理员已创建")
+
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭时清理资源"""

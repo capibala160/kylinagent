@@ -1,6 +1,7 @@
 import subprocess
 import os
 import tempfile
+import platform
 from typing import Dict, List, Optional, Tuple
 from .guard import SecurityGuard
 
@@ -9,12 +10,42 @@ class PrivilegeExecutor:
     """
     最小权限执行代理
     核心运维动作在受限账户下运行，非必要不使用 root
+    
+    比赛环境适配：
+    - 若 opsagent 用户不存在，自动降级为当前用户执行
+    - 若 sudo 不可用，直接使用当前用户执行
+    - 支持跨平台开发（Windows 下调试不报错）
     """
     
     def __init__(self, restricted_user: Optional[str] = None, config: Optional[Dict] = None):
         self.restricted_user = restricted_user or "opsagent"
         self.config = config or {}
         self.guard = SecurityGuard(config)
+        # 运行时检测：目标用户是否存在、sudo 是否可用
+        self._user_exists = self.check_user_exists(self.restricted_user)
+        self._has_sudo = self._check_sudo_available()
+        self._current_user = self._get_current_user()
+    
+    def _get_current_user(self) -> str:
+        """获取当前运行用户"""
+        try:
+            import pwd
+            return pwd.getpwuid(os.getuid()).pw_name
+        except Exception:
+            return os.environ.get("USER", "root")
+    
+    def _check_sudo_available(self) -> bool:
+        """检测 sudo 是否可用"""
+        if platform.system() == "Windows":
+            return False
+        try:
+            result = subprocess.run(
+                ["sudo", "-n", "true"],
+                capture_output=True, text=True, timeout=5
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
     
     def execute(self, command: str, as_user: Optional[str] = None, 
                 timeout: int = 30, cwd: Optional[str] = None) -> Dict:
@@ -43,21 +74,15 @@ class PrivilegeExecutor:
         
         try:
             # 构建执行命令
-            # 使用 sudo -u 切换到受限用户执行
-            if target_user and target_user != "root" and os.geteuid() == 0:
-                # 当前是 root，可以切换到受限用户
-                exec_cmd = ["sudo", "-u", target_user, "bash", "-c", command]
-            elif target_user and target_user != "root":
-                # 当前不是 root，尝试用 sudo
-                exec_cmd = ["sudo", "-u", target_user, "bash", "-c", command]
-            else:
-                # 使用当前用户执行
-                exec_cmd = ["bash", "-c", command]
+            exec_cmd = self._build_exec_cmd(command, target_user)
             
             # 设置环境变量，限制 PATH
             env = os.environ.copy()
             env["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-            env["HOME"] = f"/home/{target_user}" if target_user != "root" else "/root"
+            if target_user != "root" and self._user_exists:
+                env["HOME"] = f"/home/{target_user}"
+            else:
+                env["HOME"] = os.environ.get("HOME", "/root")
             
             result = subprocess.run(
                 exec_cmd,
@@ -74,7 +99,7 @@ class PrivilegeExecutor:
                 "stderr": result.stderr,
                 "returncode": result.returncode,
                 "security_check": check_result,
-                "executed_as": target_user
+                "executed_as": target_user if self._user_exists else self._current_user
             }
         except subprocess.TimeoutExpired:
             return {
@@ -83,7 +108,7 @@ class PrivilegeExecutor:
                 "stderr": f"命令执行超时 ({timeout}秒)",
                 "returncode": -1,
                 "security_check": check_result,
-                "executed_as": target_user
+                "executed_as": target_user if self._user_exists else self._current_user
             }
         except Exception as e:
             return {
@@ -92,8 +117,29 @@ class PrivilegeExecutor:
                 "stderr": f"执行异常: {str(e)}",
                 "returncode": -1,
                 "security_check": check_result,
-                "executed_as": target_user
+                "executed_as": target_user if self._user_exists else self._current_user
             }
+    
+    def _build_exec_cmd(self, command: str, target_user: str) -> List[str]:
+        """根据环境构建执行命令"""
+        # Windows 开发环境直接执行
+        if platform.system() == "Windows":
+            return ["powershell", "-Command", command]
+        
+        # 目标用户存在且 sudo 可用：使用 sudo 切换
+        if target_user and target_user != "root" and self._user_exists and self._has_sudo:
+            return ["sudo", "-u", target_user, "bash", "-c", command]
+        
+        # 当前是 root 且目标用户存在：使用 sudo 切换（不需要 -n）
+        if target_user and target_user != "root" and self._user_exists:
+            try:
+                if os.getuid() == 0:
+                    return ["sudo", "-u", target_user, "bash", "-c", command]
+            except AttributeError:
+                pass  # Windows 没有 getuid
+        
+        # 降级：直接使用当前用户执行
+        return ["bash", "-c", command]
     
     def execute_readonly(self, command: str, timeout: int = 10) -> Dict:
         """
@@ -106,7 +152,8 @@ class PrivilegeExecutor:
             "systemctl status", "cat", "grep", "find", "ls",
             "uname", "uptime", "who", "last",
             "vmstat", "iostat", "mpstat", "sar", "dmesg",
-            "lsblk", "fdisk -l", "head", "tail", "wc"
+            "lsblk", "fdisk -l", "head", "tail", "wc",
+            "getenforce", "sestatus", "crontab", "getent"
         ]
         
         cmd_first = command.strip().split()[0] if command.strip() else ""
@@ -129,15 +176,20 @@ class PrivilegeExecutor:
     
     def check_user_exists(self, username: str) -> bool:
         """检查受限用户是否存在"""
+        if platform.system() == "Windows":
+            return False
         try:
             import pwd
             pwd.getpwnam(username)
             return True
-        except KeyError:
+        except (KeyError, ImportError):
             return False
     
     def create_restricted_user(self, username: str) -> Tuple[bool, str]:
         """创建受限执行用户"""
+        if platform.system() == "Windows":
+            return False, "Windows 环境不支持创建 Linux 用户"
+        
         if self.check_user_exists(username):
             return True, f"用户 {username} 已存在"
         

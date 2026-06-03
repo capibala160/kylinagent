@@ -16,12 +16,21 @@ from .models import AnalysisResult, RootCause, Severity
 # ============================================================
 
 def _run_cmd(cmd: List[str], timeout: int = 10) -> str:
-    """安全执行命令并返回 stdout"""
+    """安全执行命令并返回 stdout，失败时返回 stderr 或友好提示"""
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return result.stdout if result.returncode == 0 else ""
-    except Exception:
-        return ""
+        if result.returncode == 0:
+            return result.stdout
+        # 命令存在但执行失败，返回 stderr
+        if result.stderr:
+            return f"[命令执行失败] {result.stderr.strip()[:500]}"
+        return "[命令执行失败，无错误输出]"
+    except FileNotFoundError:
+        return f"[命令未安装] {cmd[0]}"
+    except subprocess.TimeoutExpired:
+        return f"[命令执行超时] {' '.join(cmd)}"
+    except Exception as e:
+        return f"[执行异常] {str(e)}"
 
 
 def _parse_df(df_output: str) -> List[Dict[str, Any]]:

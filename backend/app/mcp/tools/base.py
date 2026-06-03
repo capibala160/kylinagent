@@ -13,13 +13,15 @@ class BaseTool(ABC):
     parameters: Dict[str, Any] = {}
     
     def get_tool_definition(self) -> Tool:
+        # 只有没有 default 的参数才是 required
+        required = [k for k, v in self.parameters.items() if "default" not in v]
         return Tool(
             name=self.name,
             description=self.description,
             inputSchema={
                 "type": "object",
                 "properties": self.parameters,
-                "required": list(self.parameters.keys())
+                "required": required
             }
         )
     

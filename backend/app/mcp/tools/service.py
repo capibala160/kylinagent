@@ -42,6 +42,13 @@ class ServiceListTool(BaseTool):
                 cmd = ["systemctl", "list-units", "--type=service", "--no-pager", "-n", str(limit)]
             
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if result.returncode != 0 and "systemctl" in result.stderr.lower():
+                # systemd 不可用（如容器环境）
+                return ToolCallResult(
+                    content=[TextContent(type="text", text=f"systemd 不可用（当前环境可能不支持 systemd）:\n{result.stderr}")],
+                    isError=True
+                )
+            
             output = result.stdout if result.returncode == 0 else result.stderr
             
             # 同时获取失败服务的摘要
@@ -137,7 +144,12 @@ class SELinuxStatusTool(BaseTool):
                 ["getenforce"],
                 capture_output=True, text=True, timeout=5
             )
-            mode = status.stdout.strip() if status.returncode == 0 else "未安装/未启用"
+            if status.returncode != 0:
+                # SELinux 未安装
+                text = "SELinux 未安装或未启用（麒麟系统可能使用其他安全模块）"
+                return ToolCallResult(content=[TextContent(type="text", text=text)])
+            
+            mode = status.stdout.strip()
             
             # 详细状态
             detail = subprocess.run(
@@ -182,13 +194,14 @@ class OpenPortsTool(BaseTool):
                 ["ss", "-tunapl", "state", "listening"],
                 capture_output=True, text=True, timeout=10
             )
-            listeners = result.stdout if result.returncode == 0 else "无法获取端口列表"
+            if result.returncode != 0:
+                # fallback 到 netstat
+                result = subprocess.run(
+                    ["netstat", "-tunapl"],
+                    capture_output=True, text=True, timeout=10
+                )
             
-            # 统计各端口数量
-            port_stats = subprocess.run(
-                ["ss", "-tunapl", "state", "listening", "--processes"],
-                capture_output=True, text=True, timeout=10
-            )
+            listeners = result.stdout if result.returncode == 0 else "无法获取端口列表"
             
             text = f"""系统监听端口详情:
 {listeners}

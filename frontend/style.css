@@ -214,6 +214,7 @@ body {
     border-radius: var(--radius);
     padding: 24px;
     max-width: 700px;
+    align-self: center;
 }
 
 .welcome-message h3 {
@@ -315,6 +316,12 @@ body {
     padding: 0;
 }
 
+.message-content img {
+    max-width: 100%;
+    border-radius: var(--radius);
+    margin: 8px 0;
+}
+
 .security-badge {
     display: inline-flex;
     align-items: center;
@@ -339,6 +346,11 @@ body {
 .badge-danger {
     background: rgba(220, 38, 38, 0.2);
     color: var(--danger);
+}
+
+.badge-secondary {
+    background: rgba(100, 116, 139, 0.2);
+    color: var(--text-secondary);
 }
 
 .tool-result {
@@ -791,6 +803,53 @@ body {
     40% { transform: scale(1); }
 }
 
+/* 代码块复制按钮 */
+.code-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+pre:hover .code-copy-btn {
+    opacity: 1;
+}
+.code-copy-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* 消息折叠 */
+.message-content.collapsed {
+    max-height: 400px;
+    overflow: hidden;
+    mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+}
+.msg-expand-btn {
+    align-self: center;
+    margin-top: 4px;
+    padding: 6px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.msg-expand-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
 /* ===== 响应式 ===== */
 @media (max-width: 768px) {
     .sidebar {
@@ -803,5 +862,14 @@ body {
     
     .tools-grid {
         grid-template-columns: 1fr;
+    }
+    
+    .audit-item-meta {
+        flex-direction: column;
+        gap: 4px;
+    }
+    
+    .input-hints {
+        flex-wrap: wrap;
     }
 }

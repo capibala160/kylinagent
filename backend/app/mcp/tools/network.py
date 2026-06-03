@@ -26,15 +26,31 @@ class NetworkConnectionsTool(BaseTool):
         state = arguments.get("state", "")
         
         try:
-            cmd = ["ss", "-tunapl"] if protocol == "all" else ["ss", "-unapl"] if protocol == "udp" else ["ss", "-tnapl"]
+            if protocol == "all":
+                cmd = ["ss", "-tunapl"]
+            elif protocol == "udp":
+                cmd = ["ss", "-unapl"]
+            else:
+                cmd = ["ss", "-tnapl"]
+            
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                # ss 不可用，尝试 netstat
+                result = subprocess.run(
+                    ["netstat", "-tunapl"],
+                    capture_output=True, text=True, timeout=10
+                )
+            
             output = result.stdout if result.returncode == 0 else result.stderr
             
             # 如果有状态过滤
-            if state:
+            if state and result.returncode == 0:
                 lines = output.split("\n")
                 filtered = [lines[0]] + [l for l in lines[1:] if state.upper() in l.upper()]
                 output = "\n".join(filtered[:200])
+            
+            if result.returncode != 0:
+                output = f"网络连接信息获取失败（ss/netstat 均不可用）:\n{output}"
             
             return ToolCallResult(content=[TextContent(type="text", text=output)])
         except Exception as e:
@@ -52,10 +68,10 @@ class NetworkInterfaceTool(BaseTool):
     async def execute(self, arguments: Dict[str, Any]) -> ToolCallResult:
         try:
             result = subprocess.run(["ip", "addr"], capture_output=True, text=True, timeout=5)
-            ip_addr = result.stdout if result.returncode == 0 else ""
+            ip_addr = result.stdout if result.returncode == 0 else f"ip addr 失败: {result.stderr}"
             
             result2 = subprocess.run(["ip", "link"], capture_output=True, text=True, timeout=5)
-            ip_link = result2.stdout if result2.returncode == 0 else ""
+            ip_link = result2.stdout if result2.returncode == 0 else f"ip link 失败: {result2.stderr}"
             
             text = f"""网络接口地址:
 {ip_addr}
@@ -97,13 +113,18 @@ class PortUsageTool(BaseTool):
             )
         
         try:
+            # 先尝试 lsof
+            lsof_output = ""
             result = subprocess.run(
                 ["lsof", "-i", f":{port}", "-P", "-n"],
                 capture_output=True, text=True, timeout=10
             )
-            output = result.stdout if result.returncode == 0 else f"端口 {port} 未被占用或无法获取信息"
+            if result.returncode == 0:
+                lsof_output = result.stdout
+            else:
+                lsof_output = f"lsof 不可用或端口 {port} 未被占用（提示: 可尝试安装 lsof）"
             
-            # 不使用 shell=True，用 ss 直接过滤
+            # 使用 ss 作为备选
             result2 = subprocess.run(
                 ["ss", "-tunapl"],
                 capture_output=True, text=True, timeout=5
@@ -119,7 +140,7 @@ class PortUsageTool(BaseTool):
             text = f"""端口 {port} 使用情况:
 
 --- lsof ---
-{output}
+{lsof_output}
 
 --- ss ---
 {ss_output}
