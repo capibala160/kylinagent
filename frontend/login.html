@@ -3,290 +3,1016 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登录 - Kylin Safe Ops Agent</title>
-    <link rel="stylesheet" href="style.css">
+    <title>KylinOps - 安全智能运维平台</title>
     <style>
-        .login-container {
+        :root {
+            --primary: #5860f6;
+            --primary-dark: #4747d4;
+            --primary-light: #eef1ff;
+            --accent: #30dcff;
+            --bg: #f8fafc;
+            --text: #1e293b;
+            --text-secondary: #64748b;
+            --border: #e2e8f0;
+            --white: #ffffff;
+            --error: #ef4444;
+            --success: #10b981;
+            --radius: 12px;
+            --radius-sm: 8px;
+            --shadow: 0 4px 24px rgba(0,0,0,0.08);
+            --shadow-lg: 0 12px 48px rgba(0,0,0,0.12);
+            --transition: 0.25s ease;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+            background: var(--bg);
+            min-height: 100vh;
+            display: flex;
+            color: var(--text);
+            overflow-x: hidden;
+        }
+
+        /* ===== 左侧品牌区 ===== */
+        .brand-panel {
+            flex: 1;
+            background: linear-gradient(160deg, #e8f4fd 0%, #d4e6fc 15%, #b8cdf8 35%, #8898f2 55%, #5860f6 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 60px 48px;
+            position: relative;
+            overflow: hidden;
+            min-height: 100vh;
+        }
+
+        .brand-panel::before {
+            content: '';
+            position: absolute;
+            top: -180px;
+            right: -180px;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .brand-panel::after {
+            content: '';
+            position: absolute;
+            bottom: -120px;
+            left: -120px;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .brand-content {
+            position: relative;
+            z-index: 1;
+            max-width: 440px;
+        }
+
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 48px;
+        }
+
+        .brand-logo svg { width: 40px; height: 40px; }
+
+        .brand-logo span {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e293b;
+            letter-spacing: -0.5px;
+        }
+
+        .brand-content h1 {
+            font-size: 44px;
+            font-weight: 800;
+            line-height: 1.15;
+            color: #0f172a;
+            margin-bottom: 16px;
+            letter-spacing: -1px;
+        }
+
+        .brand-content .desc {
+            font-size: 16px;
+            line-height: 1.7;
+            color: #334155;
+            margin-bottom: 36px;
+            opacity: 0.85;
+        }
+
+        .feature-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 48px;
+        }
+
+        .feature-tag {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.55);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.6);
+            border-radius: 24px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #1e40af;
+            white-space: nowrap;
+            transition: var(--transition);
+        }
+
+        .feature-tag:hover {
+            background: rgba(255,255,255,0.75);
+            transform: translateY(-1px);
+        }
+
+        .feature-tag svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+        .brand-illustration {
+            position: relative;
+            margin-top: 20px;
+        }
+
+        /* 装饰性卡片浮动 */
+        .float-cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .float-card {
+            background: rgba(255,255,255,0.7);
+            backdrop-filter: blur(12px);
+            border-radius: var(--radius);
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border: 1px solid rgba(255,255,255,0.8);
+            transition: var(--transition);
+        }
+
+        .float-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+        }
+
+        .float-card-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            flex-shrink: 0;
         }
-        .login-box {
+
+        .float-card-icon.cpu  { background: #dbeafe; }
+        .float-card-icon.mem  { background: #dcfce7; }
+        .float-card-icon.disk { background: #ffedd5; }
+        .float-card-icon.net  { background: #f3e8ff; }
+
+        .float-card-icon svg { width: 20px; height: 20px; }
+
+        .float-card-text .val {
+            font-size: 18px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .float-card-text .lbl {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 1px;
+        }
+
+        /* ===== 右侧表单区 ===== */
+        .form-panel {
+            width: 520px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            background: var(--white);
+            min-height: 100vh;
+        }
+
+        .form-wrapper {
             width: 100%;
             max-width: 400px;
-            padding: 40px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            box-shadow: var(--shadow);
         }
-        .login-box h2 {
+
+        .form-header {
             text-align: center;
-            margin-bottom: 8px;
-            color: var(--text-primary);
-        }
-        .login-box .subtitle {
-            text-align: center;
-            color: var(--text-secondary);
-            font-size: 14px;
             margin-bottom: 32px;
         }
-        .form-group {
-            margin-bottom: 20px;
+
+        .form-header h2 {
+            font-size: 26px;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 8px;
         }
+
+        .form-header p {
+            font-size: 14px;
+            color: #94a3b8;
+        }
+
+        /* Tab 导航 */
+        .tab-nav {
+            display: flex;
+            background: #f1f5f9;
+            border-radius: var(--radius);
+            padding: 4px;
+            margin-bottom: 24px;
+        }
+
+        .tab-nav button {
+            flex: 1;
+            padding: 10px 8px;
+            background: transparent;
+            border: none;
+            border-radius: calc(var(--radius) - 2px);
+            color: #64748b;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .tab-nav button.active {
+            background: var(--white);
+            color: var(--primary);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* 表单元素 */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
         .form-group label {
             display: block;
-            margin-bottom: 8px;
-            font-size: 14px;
-            color: var(--text-secondary);
+            margin-bottom: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #334155;
         }
-        .form-group input {
+
+        .input-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-wrap svg {
+            position: absolute;
+            left: 14px;
+            width: 18px;
+            height: 18px;
+            pointer-events: none;
+            color: #94a3b8;
+        }
+
+        .input-wrap input {
+            width: 100%;
+        }
+
+        .input-wrap.icon-left input {
+            padding-left: 42px;
+        }
+
+        .form-group input,
+        .form-group select {
             width: 100%;
             padding: 12px 16px;
-            background: var(--bg-dark);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            color: var(--text-primary);
-            font-size: 15px;
+            background: #f8fafc;
+            border: 1.5px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-size: 14px;
             outline: none;
-            transition: border-color 0.2s;
-            box-sizing: border-box;
+            transition: var(--transition);
+            font-family: inherit;
         }
-        .form-group input:focus {
+
+        .form-group input:focus,
+        .form-group select:focus {
             border-color: var(--primary);
+            background: var(--white);
+            box-shadow: 0 0 0 3px rgba(88,96,246,0.1);
         }
-        .login-btn {
-            width: 100%;
-            padding: 14px;
+
+        .form-group input::placeholder { color: #cbd5e1; }
+
+        .input-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .input-row input { flex: 1; }
+
+        .input-row button {
+            padding: 0 16px;
             background: var(--primary);
             color: #fff;
             border: none;
-            border-radius: var(--radius);
-            font-size: 15px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            transition: background 0.2s;
+            white-space: nowrap;
+            transition: var(--transition);
+            font-family: inherit;
         }
-        .login-btn:hover {
-            background: var(--primary-hover);
+
+        .input-row button:hover:not(:disabled) { background: var(--primary-dark); }
+        .input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .form-row {
+            display: flex;
+            gap: 12px;
         }
-        .login-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
+
+        .form-row .form-group { flex: 1; }
+
+        .forgot-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+            font-size: 13px;
         }
-        .login-error {
-            margin-top: 16px;
-            padding: 12px;
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            border-radius: var(--radius);
-            color: var(--danger);
-            font-size: 14px;
-            display: none;
+
+        .forgot-row label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #64748b;
+            cursor: pointer;
         }
-        .login-error.active {
-            display: block;
+
+        .forgot-row input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--primary);
         }
-        .login-switch {
-            text-align: center;
-            margin-top: 16px;
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-        .login-switch a {
+
+        .forgot-row a {
             color: var(--primary);
             text-decoration: none;
+            font-weight: 600;
+            cursor: pointer;
         }
-        .login-switch a:hover {
-            text-decoration: underline;
+
+        .forgot-row a:hover { text-decoration: underline; }
+
+        .submit-btn {
+            width: 100%;
+            padding: 13px;
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: var(--transition);
+            font-family: inherit;
         }
-        .login-footer {
+
+        .submit-btn:hover:not(:disabled) {
+            background: var(--primary-dark);
+            box-shadow: 0 6px 20px rgba(88,96,246,0.35);
+            transform: translateY(-1px);
+        }
+
+        .submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .form-message {
+            margin-top: 12px;
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
             text-align: center;
-            margin-top: 24px;
-            font-size: 12px;
-            color: var(--text-muted);
+            display: none;
+        }
+
+        .form-message.active { display: block; }
+        .form-message.error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .form-message.success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+
+        .form-footer {
+            text-align: center;
+            margin-top: 18px;
+            font-size: 13px;
+            color: #64748b;
+        }
+
+        .form-footer a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .form-footer a:hover { text-decoration: underline; }
+
+        /* 响应式 */
+        @media (max-width: 900px) {
+            .brand-panel { display: none; }
+            .form-panel { width: 100%; min-height: 100vh; }
+        }
+
+        @media (min-width: 901px) and (max-width: 1100px) {
+            .brand-panel { padding: 40px 32px; }
+            .form-panel { width: 460px; padding: 32px 24px; }
+            .brand-content h1 { font-size: 34px; }
+            .float-cards { grid-template-columns: 1fr; }
+        }
+
+        /* 选择框样式 */
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 40px !important;
+            cursor: pointer;
         }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <div class="login-box">
-            <h2>🛡️ KylinOps</h2>
-            <p class="subtitle">安全智能运维 Agent</p>
-            
-            <form id="loginForm">
-                <div class="form-group">
-                    <label for="loginUsername">用户名</label>
-                    <input type="text" id="loginUsername" placeholder="请输入用户名" required autocomplete="username">
-                </div>
-                <div class="form-group">
-                    <label for="loginPassword">密码</label>
-                    <input type="password" id="loginPassword" placeholder="请输入密码" required autocomplete="current-password">
-                </div>
-                <button type="submit" class="login-btn" id="loginBtn">登 录</button>
-                <div class="login-error" id="loginError"></div>
-                <div class="login-switch">
-                    还没有账号？<a href="#" id="toRegister">立即注册</a>
-                </div>
-            </form>
 
-            <form id="registerForm" style="display: none;">
-                <div class="form-group">
-                    <label for="regUsername">用户名</label>
-                    <input type="text" id="regUsername" placeholder="请输入用户名（3-32位）" required autocomplete="username" minlength="3" maxlength="32">
+    <!-- ===== 左侧品牌区 ===== -->
+    <aside class="brand-panel">
+        <div class="brand-content">
+            <div class="brand-logo">
+                <!-- Shield SVG -->
+                <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <linearGradient id="logoGrad" x1="4" y1="4" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#5860f6"/>
+                            <stop offset="1" stop-color="#30dcff"/>
+                        </linearGradient>
+                    </defs>
+                    <path d="M20 4L6 10v10c0 8.4 5.6 16.2 14 18 8.4-1.8 14-9.6 14-18V10L20 4z" fill="url(#logoGrad)"/>
+                    <path d="M17 20l3 3 6-6" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                </svg>
+                <span>KylinOps</span>
+            </div>
+
+            <h1>安全智能<br>运维平台</h1>
+            <p class="desc">
+                面向麒麟操作系统的智能运维 Agent，深度感知系统状态，智能诊断问题根因，安全执行运维操作。
+            </p>
+
+            <div class="feature-tags">
+                <span class="feature-tag">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#1e40af" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                    实时监控
+                </span>
+                <span class="feature-tag">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#1e40af" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    安全审计
+                </span>
+                <span class="feature-tag">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#1e40af" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                    智能诊断
+                </span>
+                <span class="feature-tag">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#1e40af" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+                    运维操作
+                </span>
+            </div>
+
+            <!-- 装饰数据卡片 -->
+            <div class="float-cards">
+                <div class="float-card">
+                    <div class="float-card-icon cpu">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="15" x2="4" y2="15"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="15" x2="22" y2="15"/></svg>
+                    </div>
+                    <div class="float-card-text">
+                        <div class="val">正常</div>
+                        <div class="lbl">系统健康度 · 98%</div>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="regPassword">密码</label>
-                    <input type="password" id="regPassword" placeholder="请输入密码（至少6位）" required autocomplete="new-password" minlength="6">
+                <div class="float-card">
+                    <div class="float-card-icon mem">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                    </div>
+                    <div class="float-card-text">
+                        <div class="val">0 告警</div>
+                        <div class="lbl">安全检测通过</div>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="regPassword2">确认密码</label>
-                    <input type="password" id="regPassword2" placeholder="请再次输入密码" required autocomplete="new-password" minlength="6">
+                <div class="float-card">
+                    <div class="float-card-icon disk">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                    </div>
+                    <div class="float-card-text">
+                        <div class="val">150 GB</div>
+                        <div class="lbl">磁盘可用空间</div>
+                    </div>
                 </div>
-                <button type="submit" class="login-btn" id="registerBtn">注 册</button>
-                <div class="login-error" id="registerError"></div>
-                <div class="login-switch">
-                    已有账号？<a href="#" id="toLogin">返回登录</a>
+                <div class="float-card">
+                    <div class="float-card-icon net">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+                    </div>
+                    <div class="float-card-text">
+                        <div class="val">128 连接</div>
+                        <div class="lbl">网络活跃连接数</div>
+                    </div>
                 </div>
-            </form>
-            
-            <div class="login-footer">
-                <p id="defaultCredsHint" style="display:none;">默认账号: opsadmin / KylinOps@2024</p>
-                <p>生产环境请通过环境变量 OPS_ADMIN_USER / OPS_ADMIN_PASS 修改</p>
             </div>
         </div>
-    </div>
+    </aside>
+
+    <!-- ===== 右侧表单区 ===== -->
+    <main class="form-panel" id="formPanel">
+        <div class="form-wrapper">
+            <div class="form-header">
+                <h2 id="cardTitle">欢迎回来</h2>
+                <p id="cardSubtitle">请登录您的账号</p>
+            </div>
+
+            <!-- ===== 登录面板 ===== -->
+            <div id="loginPanel">
+                <div class="tab-nav">
+                    <button class="tab-btn active" data-tab="pwdLogin">密码登录</button>
+                    <button class="tab-btn" data-tab="codeLogin">验证码登录</button>
+                </div>
+
+                <div class="tab-content active" id="pwdLogin">
+                    <form id="loginForm" autocomplete="on">
+                        <div class="form-group">
+                            <label>用户名</label>
+                            <div class="input-wrap icon-left">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                <input type="text" id="loginUsername" placeholder="请输入用户名" required autocomplete="username">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>密码</label>
+                            <div class="input-wrap icon-left">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                                <input type="password" id="loginPassword" placeholder="请输入密码" required autocomplete="current-password">
+                            </div>
+                        </div>
+                        <div class="forgot-row">
+                            <label><input type="checkbox" id="rememberMe" checked> 记住我</label>
+                            <a id="toForgot">忘记密码？</a>
+                        </div>
+                        <button type="submit" class="submit-btn" id="loginBtn">登 录</button>
+                        <div class="form-message" id="loginError"></div>
+                        <div class="form-footer">还没有账号？<a id="toRegister">立即注册</a></div>
+                    </form>
+                </div>
+
+                <div class="tab-content" id="codeLogin">
+                    <form id="codeLoginForm">
+                        <div class="form-group">
+                            <label>登录方式</label>
+                            <select id="codeLoginType">
+                                <option value="email">邮箱登录</option>
+                                <option value="phone">手机号登录</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label id="codeLoginTargetLabel">邮箱地址</label>
+                            <input type="text" id="codeLoginTarget" placeholder="请输入邮箱" required>
+                        </div>
+                        <div class="form-group">
+                            <label>验证码</label>
+                            <div class="input-row">
+                                <input type="text" id="codeLoginCode" placeholder="6位验证码" required maxlength="6" inputmode="numeric">
+                                <button type="button" id="codeLoginSendBtn">获取验证码</button>
+                            </div>
+                        </div>
+                        <button type="submit" class="submit-btn" id="codeLoginBtn">登 录</button>
+                        <div class="form-message" id="codeLoginError"></div>
+                        <div class="form-footer">还没有账号？<a id="toRegister2">立即注册</a></div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ===== 注册面板 ===== -->
+            <div id="registerPanel" style="display:none;">
+                <div class="tab-nav">
+                    <button class="tab-btn active" data-tab="pwdRegister">密码注册</button>
+                    <button class="tab-btn" data-tab="codeRegister">验证码注册</button>
+                </div>
+
+                <div class="tab-content active" id="pwdRegister">
+                    <form id="registerForm">
+                        <div class="form-group">
+                            <label>用户名</label>
+                            <div class="input-wrap icon-left">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                <input type="text" id="regUsername" placeholder="3-32位字符" required minlength="3" maxlength="32" autocomplete="username">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>密码</label>
+                                <input type="password" id="regPassword" placeholder="至少6位" required minlength="6" autocomplete="new-password">
+                            </div>
+                            <div class="form-group">
+                                <label>确认密码</label>
+                                <input type="password" id="regPassword2" placeholder="再次输入" required minlength="6" autocomplete="new-password">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>手机号（选填）</label>
+                                <input type="text" id="regPhone" placeholder="手机号" maxlength="20">
+                            </div>
+                            <div class="form-group">
+                                <label>邮箱（选填）</label>
+                                <input type="email" id="regEmail" placeholder="邮箱" maxlength="128">
+                            </div>
+                        </div>
+                        <button type="submit" class="submit-btn" id="registerBtn">注 册</button>
+                        <div class="form-message" id="registerError"></div>
+                        <div class="form-footer">已有账号？<a id="toLogin">返回登录</a></div>
+                    </form>
+                </div>
+
+                <div class="tab-content" id="codeRegister">
+                    <form id="codeRegisterForm">
+                        <div class="form-group">
+                            <label>注册方式</label>
+                            <select id="codeRegType">
+                                <option value="email">邮箱注册</option>
+                                <option value="phone">手机号注册</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label id="codeRegTargetLabel">邮箱地址</label>
+                            <input type="text" id="codeRegTarget" placeholder="请输入邮箱" required>
+                        </div>
+                        <div class="form-group">
+                            <label>验证码</label>
+                            <div class="input-row">
+                                <input type="text" id="codeRegCode" placeholder="6位验证码" required maxlength="6" inputmode="numeric">
+                                <button type="button" id="codeRegSendBtn">获取验证码</button>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>用户名</label>
+                                <input type="text" id="codeRegUsername" placeholder="3-32位" required minlength="3" maxlength="32">
+                            </div>
+                            <div class="form-group">
+                                <label>密码</label>
+                                <input type="password" id="codeRegPassword" placeholder="至少6位" required minlength="6">
+                            </div>
+                        </div>
+                        <button type="submit" class="submit-btn" id="codeRegBtn">注 册</button>
+                        <div class="form-message" id="codeRegError"></div>
+                        <div class="form-footer">已有账号？<a id="toLogin2">返回登录</a></div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ===== 找回密码面板 ===== -->
+            <div id="forgotPanel" style="display:none;">
+                <div class="tab-nav">
+                    <button class="tab-btn active" data-tab="emailForgot">邮箱找回</button>
+                    <button class="tab-btn" data-tab="phoneForgot">手机找回</button>
+                </div>
+
+                <div class="tab-content active" id="emailForgot">
+                    <form id="forgotEmailForm">
+                        <div class="form-group">
+                            <label>邮箱地址</label>
+                            <div class="input-wrap icon-left">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                                <input type="email" id="forgotEmail" placeholder="请输入注册邮箱" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>验证码</label>
+                            <div class="input-row">
+                                <input type="text" id="forgotEmailCode" placeholder="6位验证码" required maxlength="6" inputmode="numeric">
+                                <button type="button" id="forgotEmailSendBtn">获取验证码</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>新密码</label>
+                            <input type="password" id="forgotEmailNewPwd" placeholder="至少6位" required minlength="6">
+                        </div>
+                        <button type="submit" class="submit-btn" id="forgotEmailBtn">重置密码</button>
+                        <div class="form-message" id="forgotEmailError"></div>
+                        <div class="form-footer"><a id="backToLogin">返回登录</a></div>
+                    </form>
+                </div>
+
+                <div class="tab-content" id="phoneForgot">
+                    <form id="forgotPhoneForm">
+                        <div class="form-group">
+                            <label>手机号</label>
+                            <input type="text" id="forgotPhone" placeholder="请输入注册手机号" required maxlength="20">
+                        </div>
+                        <div class="form-group">
+                            <label>验证码</label>
+                            <div class="input-row">
+                                <input type="text" id="forgotPhoneCode" placeholder="6位验证码" required maxlength="6" inputmode="numeric">
+                                <button type="button" id="forgotPhoneSendBtn">获取验证码</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>新密码</label>
+                            <input type="password" id="forgotPhoneNewPwd" placeholder="至少6位" required minlength="6">
+                        </div>
+                        <button type="submit" class="submit-btn" id="forgotPhoneBtn">重置密码</button>
+                        <div class="form-message" id="forgotPhoneError"></div>
+                        <div class="form-footer"><a id="backToLogin2">返回登录</a></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </main>
 
     <script>
         const API_BASE = window.location.origin + '/api';
 
-        // 如果已经登录，直接跳转到主界面
+        // ===== 面板切换 =====
+        const loginPanel = document.getElementById('loginPanel');
+        const registerPanel = document.getElementById('registerPanel');
+        const forgotPanel = document.getElementById('forgotPanel');
+        const cardTitle = document.getElementById('cardTitle');
+        const cardSubtitle = document.getElementById('cardSubtitle');
+
+        function showPanel(name) {
+            const map = {
+                login:    { show: loginPanel,    hide: [registerPanel, forgotPanel], title: '欢迎回来',     sub: '请登录您的账号' },
+                register: { show: registerPanel, hide: [loginPanel, forgotPanel],    title: '创建账号',     sub: '注册并开始使用' },
+                forgot:   { show: forgotPanel,   hide: [loginPanel, registerPanel],  title: '找回密码',     sub: '验证身份后重置密码' },
+            };
+            const m = map[name];
+            m.show.style.display = 'block';
+            m.hide.forEach(el => el.style.display = 'none');
+            cardTitle.textContent = m.title;
+            cardSubtitle.textContent = m.sub;
+        }
+
+        document.getElementById('toRegister').addEventListener('click', () => showPanel('register'));
+        document.getElementById('toRegister2').addEventListener('click', () => showPanel('register'));
+        document.getElementById('toLogin').addEventListener('click', () => showPanel('login'));
+        document.getElementById('toLogin2').addEventListener('click', () => showPanel('login'));
+        document.getElementById('toForgot').addEventListener('click', () => showPanel('forgot'));
+        document.getElementById('backToLogin').addEventListener('click', () => showPanel('login'));
+        document.getElementById('backToLogin2').addEventListener('click', () => showPanel('login'));
+
+        // ===== Tab 切换 =====
+        document.querySelectorAll('.tab-nav').forEach(nav => {
+            nav.addEventListener('click', (e) => {
+                if (!e.target.classList.contains('tab-btn')) return;
+                const parent = e.target.closest('.form-wrapper') || e.target.closest('.tab-nav').parentElement;
+                const buttons = parent.querySelectorAll('.tab-btn');
+                const contents = parent.querySelectorAll('.tab-content');
+                buttons.forEach(b => b.classList.remove('active'));
+                contents.forEach(c => c.classList.remove('active'));
+                e.target.classList.add('active');
+                const tab = parent.querySelector('#' + e.target.dataset.tab);
+                if (tab) tab.classList.add('active');
+            });
+        });
+
+        // ===== 动态标签 =====
+        function setupTypeSwitch(selectId, labelId, inputId) {
+            document.getElementById(selectId).addEventListener('change', function() {
+                const isPhone = this.value === 'phone';
+                document.getElementById(labelId).textContent = isPhone ? '手机号' : '邮箱地址';
+                const input = document.getElementById(inputId);
+                input.placeholder = isPhone ? '请输入手机号' : '请输入邮箱';
+                input.type = isPhone ? 'text' : 'email';
+            });
+        }
+        setupTypeSwitch('codeLoginType', 'codeLoginTargetLabel', 'codeLoginTarget');
+        setupTypeSwitch('codeRegType', 'codeRegTargetLabel', 'codeRegTarget');
+
+        // ===== 已登录检测 =====
         async function checkLoggedIn() {
             try {
-                const res = await fetch(API_BASE + '/auth/me', {
-                    credentials: 'include'
-                });
-                if (res.ok) {
-                    window.location.href = '/';
-                }
-            } catch (e) {
-                // 忽略错误，留在登录页
-            }
+                const res = await fetch(API_BASE + '/auth/me', { credentials: 'include' });
+                if (res.ok) window.location.href = '/';
+            } catch (e) {}
         }
         checkLoggedIn();
 
-        // 仅在本地开发环境显示默认凭证提示
-        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-            const hint = document.getElementById('defaultCredsHint');
-            if (hint) hint.style.display = 'block';
+        // ===== 记住用户名 =====
+        const savedUsername = localStorage.getItem('lastLoginUsername');
+        if (savedUsername) document.getElementById('loginUsername').value = savedUsername;
+
+        // ===== 工具函数 =====
+        function showMsg(elId, msg, isSuccess) {
+            const el = document.getElementById(elId);
+            el.textContent = msg;
+            el.classList.add('active');
+            el.classList.toggle('error', !isSuccess);
+            el.classList.toggle('success', !!isSuccess);
+        }
+        function clearMsg(elId) {
+            const el = document.getElementById(elId);
+            el.classList.remove('active', 'error', 'success');
+            el.textContent = '';
         }
 
-        // 切换登录/注册表单
-        const loginForm = document.getElementById('loginForm');
-        const registerForm = document.getElementById('registerForm');
-        document.getElementById('toRegister').addEventListener('click', (e) => {
-            e.preventDefault();
-            loginForm.style.display = 'none';
-            registerForm.style.display = 'block';
-            document.getElementById('loginError').classList.remove('active');
-        });
-        document.getElementById('toLogin').addEventListener('click', (e) => {
-            e.preventDefault();
-            registerForm.style.display = 'none';
-            loginForm.style.display = 'block';
-            document.getElementById('registerError').classList.remove('active');
-        });
+        // ===== 发送验证码 =====
+        async function sendCode(target, targetType, purpose, btnId, errorId) {
+            const btn = document.getElementById(btnId);
+            clearMsg(errorId);
+            btn.disabled = true;
+            try {
+                const res = await fetch(API_BASE + '/auth/send-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target, target_type: targetType, purpose })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showMsg(errorId, '验证码已发送', true);
+                    let sec = data.cooldown || 60;
+                    btn.textContent = sec + 's';
+                    const timer = setInterval(() => {
+                        sec--;
+                        if (sec <= 0) { clearInterval(timer); btn.disabled = false; btn.textContent = '获取验证码'; }
+                        else btn.textContent = sec + 's';
+                    }, 1000);
+                } else {
+                    showMsg(errorId, data.detail || '发送失败');
+                    btn.disabled = false;
+                }
+            } catch (e) { showMsg(errorId, '网络错误'); btn.disabled = false; }
+        }
 
-        // 登录处理
-        loginForm.addEventListener('submit', async (e) => {
+        // ===== 密码登录 =====
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('loginBtn');
-            const errorEl = document.getElementById('loginError');
             const username = document.getElementById('loginUsername').value.trim();
             const password = document.getElementById('loginPassword').value;
-
-            btn.disabled = true;
-            btn.textContent = '登录中...';
-            errorEl.classList.remove('active');
-            errorEl.textContent = '';
-
+            clearMsg('loginError');
+            btn.disabled = true; btn.textContent = '登录中...';
             try {
                 const res = await fetch(API_BASE + '/auth/login', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
-                    body: JSON.stringify({username, password})
+                    body: JSON.stringify({ username, password })
                 });
-                
                 if (res.ok) {
+                    if (document.getElementById('rememberMe').checked) localStorage.setItem('lastLoginUsername', username);
+                    else localStorage.removeItem('lastLoginUsername');
                     window.location.href = '/';
                 } else {
                     const data = await res.json();
-                    errorEl.textContent = data.detail || '登录失败';
-                    errorEl.classList.add('active');
+                    showMsg('loginError', data.detail || '登录失败');
                 }
-            } catch (e) {
-                errorEl.textContent = '网络错误，请检查服务是否正常运行';
-                errorEl.classList.add('active');
-            } finally {
-                btn.disabled = false;
-                btn.textContent = '登 录';
-            }
+            } catch (e) { showMsg('loginError', '网络错误'); }
+            finally { btn.disabled = false; btn.textContent = '登 录'; }
         });
 
-        // 注册处理
-        registerForm.addEventListener('submit', async (e) => {
+        // ===== 验证码登录 =====
+        document.getElementById('codeLoginSendBtn').addEventListener('click', () => {
+            const target = document.getElementById('codeLoginTarget').value.trim();
+            const targetType = document.getElementById('codeLoginType').value;
+            if (!target) { showMsg('codeLoginError', '请输入' + (targetType === 'phone' ? '手机号' : '邮箱')); return; }
+            sendCode(target, targetType, 'login', 'codeLoginSendBtn', 'codeLoginError');
+        });
+        document.getElementById('codeLoginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('codeLoginBtn');
+            const target = document.getElementById('codeLoginTarget').value.trim();
+            const targetType = document.getElementById('codeLoginType').value;
+            const code = document.getElementById('codeLoginCode').value.trim();
+            clearMsg('codeLoginError');
+            btn.disabled = true; btn.textContent = '登录中...';
+            try {
+                const res = await fetch(API_BASE + '/auth/login-with-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ target, target_type: targetType, code })
+                });
+                if (res.ok) window.location.href = '/';
+                else { const data = await res.json(); showMsg('codeLoginError', data.detail || '登录失败'); }
+            } catch (e) { showMsg('codeLoginError', '网络错误'); }
+            finally { btn.disabled = false; btn.textContent = '登 录'; }
+        });
+
+        // ===== 密码注册 =====
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('registerBtn');
-            const errorEl = document.getElementById('registerError');
             const username = document.getElementById('regUsername').value.trim();
             const password = document.getElementById('regPassword').value;
             const password2 = document.getElementById('regPassword2').value;
-
-            if (password !== password2) {
-                errorEl.textContent = '两次输入的密码不一致';
-                errorEl.classList.add('active');
-                return;
-            }
-
-            btn.disabled = true;
-            btn.textContent = '注册中...';
-            errorEl.classList.remove('active');
-            errorEl.textContent = '';
-
+            const phone = document.getElementById('regPhone').value.trim() || undefined;
+            const email = document.getElementById('regEmail').value.trim() || undefined;
+            clearMsg('registerError');
+            if (password !== password2) { showMsg('registerError', '两次输入的密码不一致'); return; }
+            btn.disabled = true; btn.textContent = '注册中...';
             try {
+                const body = { username, password };
+                if (phone) body.phone = phone;
+                if (email) body.email = email;
                 const res = await fetch(API_BASE + '/auth/register', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username, password})
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
                 });
-
                 if (res.ok) {
-                    errorEl.textContent = '注册成功，请登录';
-                    errorEl.style.color = '#22c55e';
-                    errorEl.classList.add('active');
-                    setTimeout(() => {
-                        registerForm.style.display = 'none';
-                        loginForm.style.display = 'block';
-                        errorEl.style.color = '';
-                        errorEl.classList.remove('active');
-                        document.getElementById('loginUsername').value = username;
-                    }, 1500);
-                } else {
-                    const data = await res.json();
-                    errorEl.textContent = data.detail || '注册失败';
-                    errorEl.classList.add('active');
-                }
-            } catch (e) {
-                errorEl.textContent = '网络错误，请检查服务是否正常运行';
-                errorEl.classList.add('active');
-            } finally {
-                btn.disabled = false;
-                btn.textContent = '注 册';
-            }
+                    showMsg('registerError', '注册成功，请登录', true);
+                    setTimeout(() => showPanel('login'), 1200);
+                } else { const data = await res.json(); showMsg('registerError', data.detail || '注册失败'); }
+            } catch (e) { showMsg('registerError', '网络错误'); }
+            finally { btn.disabled = false; btn.textContent = '注 册'; }
         });
+
+        // ===== 验证码注册 =====
+        document.getElementById('codeRegSendBtn').addEventListener('click', () => {
+            const target = document.getElementById('codeRegTarget').value.trim();
+            const targetType = document.getElementById('codeRegType').value;
+            if (!target) { showMsg('codeRegError', '请输入' + (targetType === 'phone' ? '手机号' : '邮箱')); return; }
+            sendCode(target, targetType, 'register', 'codeRegSendBtn', 'codeRegError');
+        });
+        document.getElementById('codeRegisterForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('codeRegBtn');
+            const target = document.getElementById('codeRegTarget').value.trim();
+            const targetType = document.getElementById('codeRegType').value;
+            const code = document.getElementById('codeRegCode').value.trim();
+            const username = document.getElementById('codeRegUsername').value.trim();
+            const password = document.getElementById('codeRegPassword').value;
+            clearMsg('codeRegError');
+            btn.disabled = true; btn.textContent = '注册中...';
+            try {
+                const res = await fetch(API_BASE + '/auth/register-with-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target, target_type: targetType, code, username, password })
+                });
+                if (res.ok) {
+                    showMsg('codeRegError', '注册成功，请登录', true);
+                    setTimeout(() => showPanel('login'), 1200);
+                } else { const data = await res.json(); showMsg('codeRegError', data.detail || '注册失败'); }
+            } catch (e) { showMsg('codeRegError', '网络错误'); }
+            finally { btn.disabled = false; btn.textContent = '注 册'; }
+        });
+
+        // ===== 找回密码 =====
+        function setupForgot(emailId, phoneId) {
+            document.getElementById(emailId + 'SendBtn').addEventListener('click', () => {
+                const target = document.getElementById(emailId).value.trim();
+                if (!target) { showMsg(emailId + 'Error', '请输入' + (emailId.startsWith('forgotPhone') ? '手机号' : '邮箱')); return; }
+                sendCode(target, emailId.startsWith('forgotPhone') ? 'phone' : 'email', 'reset_password', emailId + 'SendBtn', emailId + 'Error');
+            });
+            document.getElementById(emailId + 'Form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const btn = document.getElementById(emailId + 'Btn');
+                const target = document.getElementById(emailId).value.trim();
+                const code = document.getElementById(emailId + 'Code').value.trim();
+                const newPassword = document.getElementById(emailId + 'NewPwd').value;
+                clearMsg(emailId + 'Error');
+                btn.disabled = true; btn.textContent = '重置中...';
+                try {
+                    const targetType = emailId.startsWith('forgotPhone') ? 'phone' : 'email';
+                    const res = await fetch(API_BASE + '/auth/reset-password', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ target, target_type: targetType, code, new_password: newPassword })
+                    });
+                    if (res.ok) {
+                        showMsg(emailId + 'Error', '密码重置成功，请登录', true);
+                        setTimeout(() => showPanel('login'), 1500);
+                    } else { const data = await res.json(); showMsg(emailId + 'Error', data.detail || '重置失败'); }
+                } catch (e) { showMsg(emailId + 'Error', '网络错误'); }
+                finally { btn.disabled = false; btn.textContent = '重置密码'; }
+            });
+        }
+        setupForgot('forgotEmail', 'forgotPhone');
+        setupForgot('forgotPhone', '');
     </script>
 </body>
 </html>

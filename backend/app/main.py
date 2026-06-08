@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse
 
 from app.config import get_config
 from app.api.routes import router
+from app.middleware import RateLimitMiddleware, RequestMonitorMiddleware
 
 config = get_config()
 
@@ -21,6 +22,19 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc"
 )
+
+# 请求监控中间件（最先添加，确保所有请求都被监控）
+request_monitor = RequestMonitorMiddleware(app)
+app.add_middleware(RequestMonitorMiddleware)
+
+# API 限流中间件
+rate_limit = RateLimitMiddleware(
+    app,
+    default_requests_per_minute=60,
+    default_requests_per_hour=1000,
+    default_burst_size=10,
+)
+app.add_middleware(RateLimitMiddleware)
 
 # CORS 配置
 # 生产环境应限制为特定域名，避免凭证泄露
@@ -97,7 +111,7 @@ async def startup_event():
     auth = get_session_auth()
     await auth.init_default_user()
     
-    print("✅ 启动完成: 数据库已初始化，默认管理员已创建")
+    print("[OK] 启动完成: 数据库已初始化，默认管理员已创建")
 
 
 @app.on_event("shutdown")

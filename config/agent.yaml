@@ -104,6 +104,6 @@ audit:
 
 # 认证配置
 auth:
-  session_ttl: 28800  # 8小时，单位秒
+  session_ttl: 2592000  # 30天，单位秒（延长登录状态保持时间，减少重复注册）
   enable_dev_token: false  # 比赛环境禁用开发Token，确保安全
   cookie_secure: false     # HTTP环境设为false，HTTPS环境设为true

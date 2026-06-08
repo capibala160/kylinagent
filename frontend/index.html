@@ -4,44 +4,143 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kylin Safe Ops Agent - 安全智能运维</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style-enhanced.css?v=2">
     <script src="marked.min.js"></script>
     <script src="purify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+
+    /* SVG icon defaults */
+    .icon { width: 1em; height: 1em; vertical-align: -0.125em; flex-shrink: 0; }
+    .nav-btn .icon, .sidebar-header .icon { width: 1.2em; height: 1.2em; }
+    .heart-icon { color: #ef4444; }
+    .star-icon { color: #f59e0b; }
+    .send-icon { width: 1.2em; height: 1.2em; }
+
+</style>
 </head>
 <body>
-    <div class="app-container">
+    <!-- 跳过链接 - 无障碍支持 -->
+    <a href="#main-content" class="skip-link">跳转到主要内容</a>
+    <a href="#chat-input" class="skip-link">跳转到聊天输入框</a>
+    
+    <div class="app-container" role="application">
+        <!-- 全局头部 -->
+        <header class="app-header">
+            <div class="header-logo">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <span class="header-title">Kylin Safe Ops Agent</span>
+            </div>
+            <div class="header-info">
+                <span class="header-username" id="headerUsername">运维工程师</span>
+                <span class="header-badge">安全运维</span>
+            </div>
+        </header>
+
+        <div class="app-body">
+        <!-- 移动端菜单按钮 -->
+        <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="打开菜单" aria-expanded="false">
+            <span class="hamburger"></span>
+        </button>
+        
+        <!-- 移动端侧边栏遮罩 -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+        
         <!-- 侧边栏 -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar" role="navigation" aria-label="主导航">
             <div class="sidebar-header">
-                <h1>🛡️ KylinOps</h1>
+                <button class="sidebar-close-btn" id="sidebarCloseBtn" aria-label="关闭菜单">×</button>
+                <h1 aria-label="KylinOps 运维助手"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> KylinOps</h1>
                 <p class="subtitle">安全智能运维 Agent</p>
             </div>
             
-            <div class="sidebar-nav">
-                <button class="nav-btn active" data-view="chat">
-                    <span>💬</span> 运维对话
+            <div class="sidebar-nav" role="tablist" aria-label="功能导航">
+                <button class="nav-btn active" data-view="chat" role="tab" aria-selected="true" aria-controls="chat-view" id="tab-chat">
+                    <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span> 运维对话
                 </button>
-                <button class="nav-btn" data-view="audit">
-                    <span>📋</span> 审计日志
+                <button class="nav-btn" data-view="dashboard" role="tab" aria-selected="false" aria-controls="dashboard-view" id="tab-dashboard">
+                    <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span> 监控仪表盘
                 </button>
-                <button class="nav-btn" data-view="tools">
-                    <span>🛠️</span> 工具列表
+                <button class="nav-btn" data-view="audit" role="tab" aria-selected="false" aria-controls="audit-view" id="tab-audit">
+                    <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></span> 审计日志
                 </button>
-                <button class="nav-btn" data-view="config">
-                    <span>⚙️</span> 系统配置
+                <button class="nav-btn" data-view="tools" role="tab" aria-selected="false" aria-controls="tools-view" id="tab-tools">
+                    <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg></span> 工具列表
                 </button>
+                <button class="nav-btn" data-view="config" role="tab" aria-selected="false" aria-controls="config-view" id="tab-config">
+                    <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span> 系统配置
+                </button>
+                <button class="nav-btn" data-view="approvals" role="tab" aria-selected="false" aria-controls="approvals-view" id="tab-approvals" style="display:none">
+                    <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16" r="1"/></svg></span> 审批管理
+                </button>
+            </div>
+            
+            <!-- 历史会话列表 -->
+            <div class="session-list-section">
+                <div class="session-list-header">
+                    <span>历史会话</span>
+                    <button class="session-refresh-btn" id="refreshSessions" title="刷新"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button>
+                </div>
+                
+                <!-- 搜索历史 -->
+                <div class="session-search-box">
+                    <input type="text" id="sessionSearchInput" placeholder="搜索会话..." aria-label="搜索会话">
+                    <button class="search-clear-btn" id="clearSessionSearch" title="清除搜索">×</button>
+                </div>
+                
+                <!-- 文件夹分组 -->
+                <div class="folder-group" id="folderGroup">
+                    <button class="folder-header" id="folderHeader">
+                        <span class="folder-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span>
+                        <span class="folder-title">我的文件夹</span>
+                        <span class="folder-count" id="folderCount">0</span>
+                        <span class="folder-arrow">▼</span>
+                    </button>
+                    <div class="folder-sessions" id="folderSessions"></div>
+                </div>
+                
+                <!-- 收藏的会话 -->
+                <div class="folder-group favorites-group" id="favoritesGroup">
+                    <button class="folder-header" id="favoritesHeader">
+                        <span class="folder-icon"><svg class="icon star-icon" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>
+                        <span class="folder-title">收藏的会话</span>
+                        <span class="folder-count" id="favoritesCount">0</span>
+                        <span class="folder-arrow">▼</span>
+                    </button>
+                    <div class="folder-sessions" id="favoritesSessions"></div>
+                </div>
+                
+                <div class="session-list" id="sessionList">
+                    <p class="session-empty">加载中...</p>
+                </div>
             </div>
             
             <div class="sidebar-footer">
                 <div class="status-indicator">
                     <span class="status-dot" id="statusDot"></span>
                     <span id="statusText">检查中...</span>
+                    <span class="network-status" id="networkStatus" title="网络状态"></span>
+                </div>
+                
+                <!-- 离线模式指示器 -->
+                <div class="offline-banner" id="offlineBanner">
+                    <span class="offline-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3c-5 0-9 3.5-9 8 0 2.2.9 4.2 2.5 5.6L3 21h18l-2.5-4.4C20.1 15.2 21 13.2 21 11c0-4.5-4-8-9-8z"/><circle cx="12" cy="11" r="2"/></svg></span>
+                    <span class="offline-text">当前处于离线模式，部分功能可能不可用</span>
+                    <button class="offline-retry" id="offlineRetryBtn">重试连接</button>
+                </div>
+                
+                <!-- 重连中指示器 -->
+                <div class="reconnecting-indicator" id="reconnectingIndicator">
+                    <div class="reconnecting-spinner"></div>
+                    <span>正在重新连接...</span>
                 </div>
                 <div class="sidebar-actions">
                     <button class="new-chat-btn" id="newChatBtn">+ 新会话</button>
-                    <button class="logout-btn" id="logoutBtn" title="退出登录">⎋</button>
+                    <button class="logout-btn" id="logoutBtn" title="退出登录"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
                 </div>
             </div>
+                <div class="sidebar-border"></div>
         </aside>
         
         <!-- 主内容区 -->
@@ -55,30 +154,35 @@
                 
                 <div class="chat-messages" id="chatMessages">
                     <div class="welcome-message">
-                        <h3>👋 欢迎使用 Kylin Safe Ops Agent</h3>
+                        <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 11v.01M7 15v.01M11 7v.01M11 11v.01M11 15v.01M15 7v.01M15 11v.01M15 15v.01M19 7v.01M19 11v.01M19 15v.01"/></svg> 欢迎使用 Kylin Safe Ops Agent</h3>
                         <p>我是您的安全智能运维助手，可以帮助您：</p>
                         <ul>
-                            <li>🔍 查看系统状态（CPU、内存、磁盘、网络）</li>
-                            <li>📊 分析进程和日志</li>
-                            <li>🧹 清理系统垃圾（带安全确认）</li>
-                            <li>🔧 诊断和解决系统问题</li>
+                            <li><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> 查看系统状态（CPU、内存、磁盘、网络）</li>
+                            <li><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> 分析进程和日志</li>
+                            <li><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 21 4 14 10 8 16 2 22 8 16 14 10 20 4 21"/></svg> 清理系统垃圾（带安全确认）</li>
+                            <li><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg> 诊断和解决系统问题</li>
                         </ul>
                         <p class="security-notice">
-                            🛡️ 所有操作均经过安全护栏校验，高危操作需要二次确认。
+                            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> 所有操作均经过安全护栏校验，高危操作需要二次确认。
                         </p>
                     </div>
                 </div>
                 
-                <div class="chat-input-area">
+                <div class="chat-input-area" id="chat-input" role="region" aria-label="聊天输入">
                     <div class="input-wrapper">
+                        <label for="chatInput" class="sr-only">输入运维指令</label>
                         <textarea 
                             id="chatInput" 
                             placeholder="请输入运维指令，例如：帮我查看系统内存使用情况..."
                             rows="1"
+                            aria-label="输入运维指令"
+                            aria-describedby="input-hints"
                         ></textarea>
-                        <button class="send-btn" id="sendBtn">➤</button>
+                        <button class="template-select-btn" id="templateSelectBtn" title="选择命令模板" aria-label="选择命令模板"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></button>
+                        <button class="send-btn" id="sendBtn" aria-label="发送消息"><svg class="icon send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>
+                        <button class="emoji-btn" id="emojiBtn" title="表情" aria-label="选择表情"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></button>
                     </div>
-                    <div class="input-hints">
+                    <div class="input-hints" id="input-hints">
                         <span>试试：</span>
                         <button class="hint-btn" data-hint="查看系统基本信息">系统信息</button>
                         <button class="hint-btn" data-hint="查看内存使用情况">内存</button>
@@ -89,10 +193,103 @@
                 </div>
             </div>
             
-            <!-- 审计日志视图 -->
-            <div class="view audit-view" id="auditView">
+            <!-- 监控仪表盘视图 -->
+            <div class="view dashboard-view" id="dashboardView" role="tabpanel" aria-labelledby="tab-dashboard">
                 <div class="view-header">
-                    <h2>📋 审计日志</h2>
+                    <h2><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> 系统监控仪表盘</h2>
+                    <div class="filter-bar">
+                        <span id="dashboardLastUpdate" class="update-time">--</span>
+                        <button id="refreshDashboard">刷新</button>
+                        <button id="toggleAutoRefresh" class="active">自动刷新</button>
+                    </div>
+                </div>
+                <div class="dashboard-content" id="dashboardContent">
+                    <!-- 指标卡片 -->
+                    <div class="metric-cards" id="metricCards">
+                        <div class="metric-card">
+                            <div class="metric-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+                            <div class="metric-info">
+                                <span class="metric-label">CPU 使用率</span>
+                                <span class="metric-value" id="cpuValue">--</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="2" y1="8" x2="22" y2="8"/><line x1="8" y1="2" x2="8" y2="22"/><line x1="16" y1="2" x2="16" y2="22"/><line x1="2" y1="14" x2="22" y2="14"/></svg></div>
+                            <div class="metric-info">
+                                <span class="metric-label">内存使用率</span>
+                                <span class="metric-value" id="memValue">--</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
+                            <div class="metric-info">
+                                <span class="metric-label">磁盘使用</span>
+                                <span class="metric-value" id="diskValue">--</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
+                            <div class="metric-info">
+                                <span class="metric-label">进程数</span>
+                                <span class="metric-value" id="procValue">--</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="8"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 4c2 2.5 3 5 3 8s-1 5.5-3 8c-2-2.5-3-5-3-8s1-5.5 3-8z"/></svg></div>
+                            <div class="metric-info">
+                                <span class="metric-label">运行中服务</span>
+                                <span class="metric-value" id="svcValue">--</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="4"/><polyline points="12 7 12 12 15 15"/></svg></div>
+                            <div class="metric-info">
+                                <span class="metric-label">系统运行时间</span>
+                                <span class="metric-value" id="uptimeValue">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 图表区域 -->
+                    <div class="charts-grid">
+                        <div class="chart-card">
+                            <h4>CPU & 内存趋势</h4>
+                            <div class="chart-container" id="cpuMemChart"></div>
+                        </div>
+                        <div class="chart-card">
+                            <h4>磁盘分区使用</h4>
+                            <div class="chart-container" id="diskChart"></div>
+                        </div>
+                        <div class="chart-card wide">
+                            <h4>TOP 5 CPU 进程</h4>
+                            <div class="process-table-wrapper">
+                                <table class="process-table" id="processTable">
+                                    <thead>
+                                        <tr><th>PID</th><th>用户</th><th>CPU%</th><th>MEM%</th><th>命令</th></tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="chart-card wide">
+                            <h4>网络流量趋势 (KB/s)</h4>
+                            <div class="chart-container" id="networkChart"></div>
+                        </div>
+                        <div class="chart-card wide">
+                            <h4>网络接口</h4>
+                            <div class="network-cards" id="networkCards"></div>
+                        </div>
+                        <div class="chart-card">
+                            <h4>服务状态</h4>
+                            <div class="chart-container" id="serviceChart"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 审计日志视图 -->
+            <div class="view audit-view" id="auditView" role="tabpanel" aria-labelledby="tab-audit">
+                <div class="view-header">
+                    <h2><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg> 审计日志</h2>
                     <div class="filter-bar">
                         <select id="auditFilter">
                             <option value="">全部状态</option>
@@ -100,18 +297,69 @@
                             <option value="blocked">已拦截</option>
                             <option value="failed">失败</option>
                         </select>
+                        <select id="auditStatsDays">
+                            <option value="1">最近1天</option>
+                            <option value="7" selected>最近7天</option>
+                            <option value="14">最近14天</option>
+                            <option value="30">最近30天</option>
+                        </select>
                         <button id="refreshAudit">刷新</button>
                     </div>
                 </div>
+                
+                <!-- 统计图表区域 -->
+                <div class="audit-stats" id="auditStats">
+                    <div class="stats-summary">
+                        <div class="stat-item">
+                            <span class="stat-label">总操作数</span>
+                            <span class="stat-value" id="statTotal">--</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">已拦截</span>
+                            <span class="stat-value danger" id="statBlocked">--</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">拦截率</span>
+                            <span class="stat-value danger" id="statBlockRate">--</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">平均耗时</span>
+                            <span class="stat-value" id="statAvgDuration">--</span>
+                        </div>
+                    </div>
+                    <div class="stats-charts">
+                        <div class="stats-chart-card">
+                            <h4>状态分布</h4>
+                            <div class="stats-chart-container" id="auditStatusChart"></div>
+                        </div>
+                        <div class="stats-chart-card">
+                            <h4>时间趋势</h4>
+                            <div class="stats-chart-container" id="auditTrendChart"></div>
+                        </div>
+                        <div class="stats-chart-card">
+                            <h4>工具使用 TOP10</h4>
+                            <div class="stats-chart-container" id="auditToolsChart"></div>
+                        </div>
+                        <div class="stats-chart-card">
+                            <h4>风险级别分布</h4>
+                            <div class="stats-chart-container" id="auditRiskChart"></div>
+                        </div>
+                        <div class="stats-chart-card wide">
+                            <h4>拦截原因分析</h4>
+                            <div class="stats-chart-container" id="auditBlockedChart"></div>
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="audit-list" id="auditList">
                     <p class="empty-state">加载中...</p>
                 </div>
             </div>
             
             <!-- 工具列表视图 -->
-            <div class="view tools-view" id="toolsView">
+            <div class="view tools-view" id="toolsView" role="tabpanel" aria-labelledby="tab-tools">
                 <div class="view-header">
-                    <h2>🛠️ MCP 工具列表</h2>
+                    <h2><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg> MCP 工具列表</h2>
                 </div>
                 <div class="tools-grid" id="toolsGrid">
                     <p class="empty-state">加载中...</p>
@@ -119,22 +367,35 @@
             </div>
             
             <!-- 配置视图 -->
-            <div class="view config-view" id="configView">
+            <div class="view config-view" id="configView" role="tabpanel" aria-labelledby="tab-config">
                 <div class="view-header">
-                    <h2>⚙️ 系统配置</h2>
+                    <h2><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg> 系统配置</h2>
                 </div>
                 <div class="config-content" id="configContent">
                     <p class="empty-state">加载中...</p>
                 </div>
             </div>
+            
+            <div class="view approvals-view" id="approvalsView" role="tabpanel" aria-labelledby="tab-approvals">
+                <div class="view-header">
+                    <h2><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16" r="1"/></svg> 权限审批管理</h2>
+                    <div class="view-actions">
+                        <button class="btn-secondary" onclick="loadApprovals()"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> 刷新</button>
+                    </div>
+                </div>
+                <div class="approvals-content" id="approvalsContent">
+                    <p class="empty-state">加载中...</p>
+                </div>
+            </div>
         </main>
-    </div>
+    </div><!-- .app-body -->
+</div><!-- .app-container -->
     
     <!-- 确认对话框 -->
     <div class="modal" id="confirmModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>⚠️ 安全确认</h3>
+                <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> 安全确认</h3>
                 <button class="close-btn" id="closeConfirmModal">×</button>
             </div>
             <div class="modal-body">
@@ -148,17 +409,384 @@
         </div>
     </div>
     
+    <!-- 权限申请对话框 -->
+    <div class="modal" id="privilegeModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16" r="1"/></svg> root 权限申请</h3>
+                <button class="close-btn" id="closePrivilegeModal">×</button>
+            </div>
+            <div class="modal-body">
+                <p id="privilegeMessage">该操作需要 root 权限才能执行。</p>
+                <div class="privilege-command" id="privilegeCommand"></div>
+                <label class="privilege-label">申请理由（至少5个字）：</label>
+                <textarea id="privilegeReason" rows="3" placeholder="请说明为什么需要 root 权限执行此操作..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="cancelPrivilegeBtn">取消</button>
+                <button class="btn-danger" id="submitPrivilegeBtn">提交申请</button>
+            </div>
+        </div>
+    </div>
+    
     <!-- 链路详情弹窗 -->
     <div class="modal" id="chainModal">
         <div class="modal-content modal-large">
             <div class="modal-header">
-                <h3>🔗 推理链路详情</h3>
+                <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg> 推理链路详情</h3>
                 <button class="close-btn" id="closeChainModal">×</button>
             </div>
             <div class="modal-body" id="chainDetails"></div>
         </div>
     </div>
     
-    <script src="app.js"></script>
+    <!-- 通知容器 -->
+    <div class="notification-container" id="notificationContainer"></div>
+    
+    <!-- 全局搜索框 -->
+    <div class="search-modal" id="searchModal">
+        <div class="search-modal-content">
+            <div class="search-input-wrapper">
+                <span class="search-icon"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+                <input type="text" id="searchInput" placeholder="搜索历史会话... (Ctrl+K)" autofocus>
+                <button class="search-close" id="searchClose">×</button>
+            </div>
+            <div class="search-results" id="searchResults"></div>
+            <div class="search-shortcuts">
+                <span>↑↓ 选择</span>
+                <span>Enter 打开</span>
+                <span>Esc 关闭</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 消息上下文菜单 -->
+    <div class="context-menu" id="contextMenu">
+        <button class="context-item" id="ctxCopy"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg> 复制</button>
+        <button class="context-item" id="ctxQuote"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> 引用</button>
+        <button class="context-item" id="ctxTranslate"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="8"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 4c2 2.5 3 5 3 8s-1 5.5-3 8c-2-2.5-3-5-3-8s1-5.5 3-8z"/></svg> 翻译</button>
+        <button class="context-item" id="ctxReaction"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"/></svg> 反应</button>
+        <button class="context-item" id="ctxDelete"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg> 删除</button>
+    </div>
+    
+    <!-- 表情选择器 -->
+    <div class="emoji-picker" id="emojiPicker">
+        <div class="emoji-category">
+            <button class="emoji-category-btn active" data-category="recent"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12"/><polyline points="12 12 8 14"/><circle cx="12" cy="12" r="1"/></svg></button>
+            <button class="emoji-category-btn" data-category="smile"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="10" x2="8.01" y2="10"/><line x1="16" y1="10" x2="16.01" y2="10"/><path d="M8 14s1.5 3 4 3 4-3 4-3"/></svg></button>
+            <button class="emoji-category-btn" data-category="gesture"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"/></svg></button>
+            <button class="emoji-category-btn" data-category="animal"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0112 5z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75z"/></svg></button>
+            <button class="emoji-category-btn" data-category="food"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1010 10L12 2z"/><path d="M12 2a10 10 0 00-10 10"/></svg></button>
+            <button class="emoji-category-btn" data-category="activity"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l4.24 4.24"/><path d="M14.83 14.83l4.24 4.24"/><circle cx="12" cy="12" r="4"/></svg></button>
+            <button class="emoji-category-btn" data-category="symbols"><svg class="icon heart-icon" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg></button>
+        </div>
+        <div class="emoji-search">
+            <input type="text" id="emojiSearch" placeholder="搜索表情..." aria-label="搜索表情">
+        </div>
+        <div class="emoji-list" id="emojiList">
+            <!-- 动态生成 -->
+        </div>
+    </div>
+    
+    <!-- 消息反应选择器 -->
+    <div class="reaction-picker" id="reactionPicker">
+        <button class="reaction-btn" data-reaction="&#60;svg class=&quot;icon&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;&#62;&#60;path d=&quot;M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3&quot;/&#62;&#60;/svg&#62;"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"/></svg></button>
+        <button class="reaction-btn" data-reaction="&#60;svg class=&quot;icon heart-icon&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;currentColor&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1&quot;&#62;&#60;path d=&quot;M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z&quot;/&#62;&#60;/svg&#62;"><svg class="icon heart-icon" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg></button>
+        <button class="reaction-btn" data-reaction="&#60;svg class=&quot;icon&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;&#62;&#60;circle cx=&quot;12&quot; cy=&quot;12&quot; r=&quot;10&quot;/&#62;&#60;line x1=&quot;8&quot; y1=&quot;10&quot; x2=&quot;8.01&quot; y2=&quot;10&quot;/&#62;&#60;line x1=&quot;16&quot; y1=&quot;10&quot; x2=&quot;16.01&quot; y2=&quot;10&quot;/&#62;&#60;path d=&quot;M8 14s1.5 3 4 3 4-3 4-3&quot;/&#62;&#60;/svg&#62;"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="10" x2="8.01" y2="10"/><line x1="16" y1="10" x2="16.01" y2="10"/><path d="M8 14s1.5 3 4 3 4-3 4-3"/></svg></button>
+        <button class="reaction-btn" data-reaction="&#60;svg class=&quot;icon&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;&#62;&#60;circle cx=&quot;12&quot; cy=&quot;12&quot; r=&quot;10&quot;/&#62;&#60;ellipse cx=&quot;12&quot; cy=&quot;14&quot; rx=&quot;4&quot; ry=&quot;3&quot;/&#62;&#60;line x1=&quot;9&quot; y1=&quot;10&quot; x2=&quot;9.01&quot; y2=&quot;10&quot;/&#62;&#60;line x1=&quot;15&quot; y1=&quot;10&quot; x2=&quot;15.01&quot; y2=&quot;10&quot;/&#62;&#60;/svg&#62;"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="14" rx="4" ry="3"/><line x1="9" y1="10" x2="9.01" y2="10"/><line x1="15" y1="10" x2="15.01" y2="10"/></svg></button>
+        <button class="reaction-btn" data-reaction="&#60;svg class=&quot;icon&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;&#62;&#60;polygon points=&quot;12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2&quot;/&#62;&#60;line x1=&quot;12&quot; y1=&quot;22&quot; x2=&quot;12&quot; y2=&quot;12&quot;/&#62;&#60;polyline points=&quot;8.5 8.5 12 12 15.5 8.5&quot;/&#62;&#60;/svg&#62;"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="22" x2="12" y2="12"/><polyline points="8.5 8.5 12 12 15.5 8.5"/></svg></button>
+        <button class="reaction-btn" data-reaction="&#60;svg class=&quot;icon&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;&#62;&#60;path d=&quot;M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z&quot;/&#62;&#60;path d=&quot;M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z&quot;/&#62;&#60;path d=&quot;M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0&quot;/&#62;&#60;path d=&quot;M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5&quot;/&#62;&#60;/svg&#62;"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg></button>
+    </div>
+    
+    <!-- 新手引导遮罩 -->
+    <div class="onboarding-overlay" id="onboardingOverlay"></div>
+    
+    <!-- 新手引导步骤 -->
+    <div class="onboarding-tour" id="onboardingTour">
+        <div class="onboarding-step" data-step="1">
+            <div class="onboarding-content">
+                <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 11v.01M7 15v.01M11 7v.01M11 11v.01M11 15v.01M15 7v.01M15 11v.01M15 15v.01M19 7v.01M19 11v.01M19 15v.01"/></svg> 欢迎使用 KylinOps</h3>
+                <p>这是一个智能运维助手，可以帮助您完成各种运维任务。</p>
+                <p>让我们快速了解一下主要功能。</p>
+            </div>
+            <div class="onboarding-actions">
+                <button class="onboarding-skip">跳过</button>
+                <button class="onboarding-next">下一步</button>
+            </div>
+        </div>
+        <div class="onboarding-step" data-step="2">
+            <div class="onboarding-content">
+                <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> 运维对话</h3>
+                <p>在这里输入您的运维问题或指令，AI助手会智能理解并执行。</p>
+                <p>支持自然语言描述，如"帮我查看系统内存"。</p>
+            </div>
+            <div class="onboarding-actions">
+                <button class="onboarding-skip">跳过</button>
+                <button class="onboarding-prev">上一步</button>
+                <button class="onboarding-next">下一步</button>
+            </div>
+        </div>
+        <div class="onboarding-step" data-step="3">
+            <div class="onboarding-content">
+                <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> 监控仪表盘</h3>
+                <p>实时查看系统资源使用情况，包括CPU、内存、磁盘等。</p>
+                <p>图表自动刷新，保持数据最新。</p>
+            </div>
+            <div class="onboarding-actions">
+                <button class="onboarding-skip">跳过</button>
+                <button class="onboarding-prev">上一步</button>
+                <button class="onboarding-next">下一步</button>
+            </div>
+        </div>
+        <div class="onboarding-step" data-step="4">
+            <div class="onboarding-content">
+                <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg> 审计日志</h3>
+                <p>记录所有操作历史，支持筛选和导出。</p>
+                <p>方便追溯问题和合规审计。</p>
+            </div>
+            <div class="onboarding-actions">
+                <button class="onboarding-skip">跳过</button>
+                <button class="onboarding-prev">上一步</button>
+                <button class="onboarding-next">下一步</button>
+            </div>
+        </div>
+        <div class="onboarding-step" data-step="5">
+            <div class="onboarding-content">
+                <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg> 快捷操作</h3>
+                <p>使用 <strong>Ctrl+K</strong> 快速搜索会话</p>
+                <p>使用 <strong>Ctrl+Enter</strong> 快速发送消息</p>
+                <p>使用 <strong>Ctrl+/</strong> 查看所有快捷键</p>
+            </div>
+            <div class="onboarding-actions">
+                <button class="onboarding-prev">上一步</button>
+                <button class="onboarding-finish">开始使用</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 首次使用提示（已禁用） -->
+    <!-- <div class="first-use-hint" id="firstUseHint">...</div> -->
+    
+    <!-- 会话右键菜单 -->
+    <div class="session-context-menu" id="sessionContextMenu">
+        <button class="session-menu-item" data-action="favorite">
+            <span><svg class="icon star-icon" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span> 收藏
+        </button>
+        <button class="session-menu-item" data-action="unfavorite">
+            <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span> 取消收藏
+        </button>
+        <button class="session-menu-item" data-action="pin">
+            <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 12l3.5 3.5L2 22l6.5-3.5L12 22l10-10-3.5-3.5L22 2z"/></svg></span> 置顶
+        </button>
+        <button class="session-menu-item" data-action="unpin">
+            <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span> 取消置顶
+        </button>
+        <button class="session-menu-item" data-action="move">
+            <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></span> 移动到文件夹
+        </button>
+        <button class="session-menu-item" data-action="rename">
+            <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span> 重命名
+        </button>
+        <button class="session-menu-item" data-action="export">
+            <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span> 导出
+        </button>
+        <div class="session-menu-divider"></div>
+        <button class="session-menu-item danger" data-action="delete">
+            <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></span> 删除
+        </button>
+    </div>
+    
+    <!-- 文件夹选择弹窗 -->
+    <div class="folder-picker-modal" id="folderPickerModal">
+        <div class="folder-picker-content">
+            <div class="folder-picker-header">
+                <h4>移动到文件夹</h4>
+                <button class="folder-picker-close" id="closeFolderPicker">×</button>
+            </div>
+            <div class="folder-picker-body">
+                <button class="folder-picker-item" data-folder="">
+                    <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></span> 不分组
+                </button>
+                <div id="folderPickerList">
+                    <!-- 动态生成 -->
+                </div>
+                <button class="folder-picker-item create-folder" id="createFolderFromPicker">
+                    <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span> 新建文件夹
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 创建文件夹弹窗 -->
+    <div class="create-folder-modal" id="createFolderModal">
+        <div class="create-folder-content">
+            <div class="create-folder-header">
+                <h4>新建文件夹</h4>
+                <button class="create-folder-close" id="closeCreateFolder">×</button>
+            </div>
+            <div class="create-folder-body">
+                <input type="text" id="newFolderName" placeholder="文件夹名称" maxlength="20">
+                <div class="folder-color-picker">
+                    <span>颜色：</span>
+                    <button class="color-btn active" data-color="#2563eb" style="background:#2563eb"></button>
+                    <button class="color-btn" data-color="#16a34a" style="background:#16a34a"></button>
+                    <button class="color-btn" data-color="#f59e0b" style="background:#f59e0b"></button>
+                    <button class="color-btn" data-color="#dc2626" style="background:#dc2626"></button>
+                    <button class="color-btn" data-color="#8b5cf6" style="background:#8b5cf6"></button>
+                    <button class="color-btn" data-color="#ec4899" style="background:#ec4899"></button>
+                </div>
+            </div>
+            <div class="create-folder-footer">
+                <button class="btn-cancel" id="cancelCreateFolder">取消</button>
+                <button class="btn-create" id="confirmCreateFolder">创建</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 搜索历史记录弹窗 -->
+    <div class="search-history-modal" id="searchHistoryModal">
+        <div class="search-history-content">
+            <div class="search-history-header">
+                <h4><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> 搜索历史</h4>
+                <button class="search-history-close" id="closeSearchHistory">×</button>
+            </div>
+            <div class="search-history-body">
+                <div class="search-history-actions">
+                    <button class="btn-outline" id="clearSearchHistory"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg> 清空历史</button>
+                </div>
+                <div class="search-history-list" id="searchHistoryList">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 快捷键帮助弹窗 -->
+    <div class="modal" id="shortcutHelpModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M6 16h.01M18 16h.01"/></svg> 键盘快捷键</h3>
+                <button class="close-btn" id="closeShortcutHelp">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="shortcut-list">
+                    <div class="shortcut-item">
+                        <span class="shortcut-keys">Ctrl + Enter</span>
+                        <span class="shortcut-desc">发送消息</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-keys">Ctrl + K</span>
+                        <span class="shortcut-desc">打开全局搜索</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-keys">Ctrl + /</span>
+                        <span class="shortcut-desc">显示快捷键帮助</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-keys">Alt + ←</span>
+                        <span class="shortcut-desc">切换到上一个视图</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-keys">Alt + →</span>
+                        <span class="shortcut-desc">切换到下一个视图</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-keys">Esc</span>
+                        <span class="shortcut-desc">关闭弹窗/搜索</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 主题切换按钮 -->
+    
+    <!-- 设置按钮 -->
+    <button class="settings-btn" id="settingsBtn" title="设置"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
+    
+    <!-- 设置面板 -->
+    <div class="settings-panel" id="settingsPanel">
+        <div class="settings-header">
+            <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg> 设置</h3>
+            <button class="settings-close" id="closeSettings">×</button>
+        </div>
+        <div class="settings-body">
+            <!-- 通知设置 -->
+            <div class="settings-section">
+                <h4><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg> 通知设置</h4>
+                <div class="settings-item">
+                    <label>声音通知</label>
+                    <label class="switch">
+                        <input type="checkbox" id="soundNotification">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="settings-item">
+                    <label>浏览器通知</label>
+                    <label class="switch">
+                        <input type="checkbox" id="browserNotification">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <!-- 草稿设置 -->
+            <div class="settings-section">
+                <h4><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> 草稿设置</h4>
+                <div class="settings-item">
+                    <label>自动保存草稿</label>
+                    <label class="switch">
+                        <input type="checkbox" id="autoSaveDraft" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <!-- 导入导出 -->
+            <div class="settings-section">
+                <h4><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="2" y1="8" x2="22" y2="8"/><line x1="8" y1="2" x2="8" y2="22"/><line x1="16" y1="2" x2="16" y2="22"/><line x1="2" y1="14" x2="22" y2="14"/></svg> 数据管理</h4>
+                <div class="settings-item">
+                    <label>导出所有会话</label>
+                    <button class="btn-small" id="exportAllSessions">导出</button>
+                </div>
+                <div class="settings-item">
+                    <label>导入会话</label>
+                    <button class="btn-small" id="importSessions">导入</button>
+                    <input type="file" id="importFileInput" accept=".json" style="display:none">
+                </div>
+            </div>
+            
+            <!-- 命令模板 -->
+            <div class="settings-section">
+                <h4><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M6 16h.01M18 16h.01"/></svg> 命令模板</h4>
+                <div class="command-templates" id="commandTemplates">
+                    <!-- 动态生成 -->
+                </div>
+                <div class="add-template-form">
+                    <input type="text" id="newTemplateName" placeholder="模板名称">
+                    <input type="text" id="newTemplateCommand" placeholder="命令内容">
+                    <button class="btn-small" id="addTemplate">添加</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 命令模板选择器 -->
+    <div class="template-selector" id="templateSelector">
+        <div class="template-header">
+            <span>选择命令模板</span>
+            <button class="template-close" id="closeTemplateSelector">×</button>
+        </div>
+        <div class="template-list" id="templateList">
+            <!-- 动态生成 -->
+        </div>
+    </div>
+    
+    <script src="js/utils.js?v=2"></script>
+    <script src="js/storage.js?v=2"></script>
+    <script src="js/api.js?v=2"></script>
+    <script src="app.js?v=2"></script>
+    <script src="js/chat.js?v=2"></script>
+    <script src="js/approvals.js?v=2"></script>
 </body>
 </html>

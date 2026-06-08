@@ -156,13 +156,15 @@ class ZombieProcessTool(BaseTool):
                     if line.strip().startswith("Z"):
                         count += 1
             
+            zombie_list = "\n".join(exact_zombies) if exact_zombies else '无'
+            zombie_info = "\n".join(zombie_lines[:20]) if zombie_lines else '无'
             text = f"""僵尸进程数量: {count}
 
 僵尸进程列表 (精确匹配):
-{"\n".join(exact_zombies) if exact_zombies else '无'}
+{zombie_list}
 
 相关进程信息:
-{"\n".join(zombie_lines[:20]) if zombie_lines else '无'}
+{zombie_info}
 """
             return ToolCallResult(content=[TextContent(type="text", text=text)])
         except Exception as e:

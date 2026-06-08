@@ -165,6 +165,7 @@ class SELinuxStatusTool(BaseTool):
             )
             context_lines = ps_context.stdout.strip().split("\n")[:20] if ps_context.returncode == 0 else []
             
+            context_text = "\n".join(context_lines)
             text = f"""SELinux 状态:
 当前模式: {mode}
 
@@ -172,7 +173,7 @@ class SELinuxStatusTool(BaseTool):
 {detail_text}
 
 部分进程安全上下文 (Top 20):
-{"\n".join(context_lines)}
+{context_text}
 """
             return ToolCallResult(content=[TextContent(type="text", text=text)])
         except Exception as e:
@@ -248,11 +249,12 @@ class UserListTool(BaseTool):
                         except ValueError:
                             pass
             
+            normal_text = "\n".join(normal_users) if normal_users else "无"
             text = f"""当前登录用户:
 {who_text}
 
 普通用户 (UID>=1000):
-{"\n".join(normal_users) if normal_users else "无"}
+{normal_text}
 
 系统用户数量: {len(system_users)}
 """
@@ -264,9 +266,200 @@ class UserListTool(BaseTool):
             )
 
 
+class RestartServiceTool(BaseTool):
+    name = "restart_service"
+    description = (
+        "重启指定的 systemd 服务。"
+        "高危操作，会触发二次确认。禁止操作 sshd、network 等关键系统服务。"
+    )
+    parameters = {
+        "service": {
+            "type": "string",
+            "description": "服务名，如 nginx、mysql、sshd"
+        }
+    }
+    
+    # 禁止操作的关键服务
+    CRITICAL_SERVICES = {
+        "sshd", "ssh", "network", "NetworkManager",
+        "systemd-journald", "systemd-journald.socket",
+        "dbus", "dbus.socket", "dbus.service",
+        "polkit", "polkit.service",
+        "systemd-resolved", "systemd-networkd",
+        "systemd-timesyncd", "systemd-logind",
+        "cron", "crond", "atd",
+        "auditd", "rsyslog", "syslog",
+    }
+    
+    async def execute(self, arguments: Dict[str, Any]) -> ToolCallResult:
+        service = arguments.get("service", "").strip()
+        if not service:
+            return ToolCallResult(
+                content=[TextContent(type="text", text="错误: 必须提供 service 参数")],
+                isError=True,
+                errorMessage="缺少 service 参数"
+            )
+        
+        if service in self.CRITICAL_SERVICES:
+            return ToolCallResult(
+                content=[TextContent(type="text", text=f"🛡️ 安全限制: 禁止重启关键系统服务 {service}")],
+                isError=True,
+                errorMessage=f"禁止重启关键系统服务: {service}"
+            )
+        
+        try:
+            result = subprocess.run(
+                ["systemctl", "restart", service],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode != 0:
+                return ToolCallResult(
+                    content=[TextContent(type="text", text=f"重启服务失败: {result.stderr}")],
+                    isError=True,
+                    errorMessage=result.stderr or "重启服务失败"
+                )
+            
+            # 重启后检查状态
+            status = subprocess.run(
+                ["systemctl", "status", service, "--no-pager"],
+                capture_output=True, text=True, timeout=10
+            )
+            status_text = status.stdout if status.returncode == 0 else status.stderr
+            
+            text = f"✅ 服务 {service} 重启成功\n\n当前状态:\n{status_text[:1500]}"
+            return ToolCallResult(content=[TextContent(type="text", text=text)])
+        except Exception as e:
+            return ToolCallResult(
+                content=[TextContent(type="text", text=f"重启服务异常: {str(e)}")],
+                isError=True,
+                errorMessage=f"重启服务异常: {str(e)}"
+            )
+
+
+class StartServiceTool(BaseTool):
+    name = "start_service"
+    description = (
+        "启动指定的 systemd 服务。"
+        "禁止操作 sshd、network 等关键系统服务。"
+    )
+    parameters = {
+        "service": {
+            "type": "string",
+            "description": "服务名，如 nginx、mysql"
+        }
+    }
+    
+    CRITICAL_SERVICES = RestartServiceTool.CRITICAL_SERVICES
+    
+    async def execute(self, arguments: Dict[str, Any]) -> ToolCallResult:
+        service = arguments.get("service", "").strip()
+        if not service:
+            return ToolCallResult(
+                content=[TextContent(type="text", text="错误: 必须提供 service 参数")],
+                isError=True,
+                errorMessage="缺少 service 参数"
+            )
+        
+        if service in self.CRITICAL_SERVICES:
+            return ToolCallResult(
+                content=[TextContent(type="text", text=f"🛡️ 安全限制: 禁止启动关键系统服务 {service}")],
+                isError=True,
+                errorMessage=f"禁止启动关键系统服务: {service}"
+            )
+        
+        try:
+            result = subprocess.run(
+                ["systemctl", "start", service],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode != 0:
+                return ToolCallResult(
+                    content=[TextContent(type="text", text=f"启动服务失败: {result.stderr}")],
+                    isError=True,
+                    errorMessage=result.stderr or "启动服务失败"
+                )
+            
+            status = subprocess.run(
+                ["systemctl", "status", service, "--no-pager"],
+                capture_output=True, text=True, timeout=10
+            )
+            status_text = status.stdout if status.returncode == 0 else status.stderr
+            
+            text = f"✅ 服务 {service} 启动成功\n\n当前状态:\n{status_text[:1500]}"
+            return ToolCallResult(content=[TextContent(type="text", text=text)])
+        except Exception as e:
+            return ToolCallResult(
+                content=[TextContent(type="text", text=f"启动服务异常: {str(e)}")],
+                isError=True,
+                errorMessage=f"启动服务异常: {str(e)}"
+            )
+
+
+class StopServiceTool(BaseTool):
+    name = "stop_service"
+    description = (
+        "停止指定的 systemd 服务。"
+        "高危操作，会触发二次确认。禁止操作 sshd、network 等关键系统服务。"
+    )
+    parameters = {
+        "service": {
+            "type": "string",
+            "description": "服务名，如 nginx、mysql"
+        }
+    }
+    
+    CRITICAL_SERVICES = RestartServiceTool.CRITICAL_SERVICES
+    
+    async def execute(self, arguments: Dict[str, Any]) -> ToolCallResult:
+        service = arguments.get("service", "").strip()
+        if not service:
+            return ToolCallResult(
+                content=[TextContent(type="text", text="错误: 必须提供 service 参数")],
+                isError=True,
+                errorMessage="缺少 service 参数"
+            )
+        
+        if service in self.CRITICAL_SERVICES:
+            return ToolCallResult(
+                content=[TextContent(type="text", text=f"🛡️ 安全限制: 禁止停止关键系统服务 {service}")],
+                isError=True,
+                errorMessage=f"禁止停止关键系统服务: {service}"
+            )
+        
+        try:
+            result = subprocess.run(
+                ["systemctl", "stop", service],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode != 0:
+                return ToolCallResult(
+                    content=[TextContent(type="text", text=f"停止服务失败: {result.stderr}")],
+                    isError=True,
+                    errorMessage=result.stderr or "停止服务失败"
+                )
+            
+            status = subprocess.run(
+                ["systemctl", "status", service, "--no-pager"],
+                capture_output=True, text=True, timeout=10
+            )
+            status_text = status.stdout if status.returncode == 0 else status.stderr
+            
+            text = f"✅ 服务 {service} 停止成功\n\n当前状态:\n{status_text[:1500]}"
+            return ToolCallResult(content=[TextContent(type="text", text=text)])
+        except Exception as e:
+            return ToolCallResult(
+                content=[TextContent(type="text", text=f"停止服务异常: {str(e)}")],
+                isError=True,
+                errorMessage=f"停止服务异常: {str(e)}"
+            )
+
+
 # 注册工具
 register_tool(ServiceListTool())
 register_tool(CronJobTool())
 register_tool(SELinuxStatusTool())
 register_tool(OpenPortsTool())
 register_tool(UserListTool())
+register_tool(RestartServiceTool())
+register_tool(StartServiceTool())
+register_tool(StopServiceTool())

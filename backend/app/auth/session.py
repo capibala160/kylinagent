@@ -16,12 +16,15 @@ from ..db import (
     db_user_exists,
     db_create_user,
     db_get_user,
+    db_get_user_by_phone,
+    db_get_user_by_email,
     db_get_all_users,
     db_create_session,
     db_get_session,
     db_update_session_last_active,
     db_delete_session,
     db_delete_expired_sessions,
+    db_update_user_password,
 )
 
 
@@ -34,8 +37,8 @@ DEV_API_TOKEN = _DEV_API_TOKEN_RAW if _DEV_API_TOKEN_RAW.strip() else None
 class SessionAuth:
     """基于 SQLite 的 Session 管理器"""
 
-    # Session 有效期：8 小时
-    SESSION_TTL = 3600 * 8
+    # Session 有效期：30 天（与 cookie max_age 保持一致）
+    SESSION_TTL = 3600 * 24 * 30
 
     def __init__(self):
         # 内存缓存（减少数据库查询）
@@ -166,22 +169,45 @@ class SessionAuth:
         # 再查数据库
         return await db_user_exists(username)
 
-    async def register(self, username: str, password: str) -> bool:
+    async def register(self, username: str, password: str,
+                        phone: Optional[str] = None, email: Optional[str] = None) -> bool:
         """
         注册新用户。
-        返回 True 表示注册成功，False 表示用户名已存在。
+        返回 True 表示注册成功，False 表示用户名/手机/邮箱已存在。
         """
         await self._ensure_db()
         if await db_user_exists(username):
             return False
         password_hash = self._hash_password(password)
-        success = await db_create_user(username, password_hash)
+        success = await db_create_user(username, password_hash, role="user", phone=phone, email=email)
         if success:
             self._user_cache[username] = {
                 "username": username,
                 "password_hash": password_hash,
+                "role": "user",
+                "phone": phone,
+                "email": email,
                 "created_at": time.time(),
             }
+        return success
+
+    async def get_user_by_phone(self, phone: str) -> Optional[dict]:
+        """通过手机号查找用户"""
+        await self._ensure_db()
+        return await db_get_user_by_phone(phone)
+
+    async def get_user_by_email(self, email: str) -> Optional[dict]:
+        """通过邮箱查找用户"""
+        await self._ensure_db()
+        return await db_get_user_by_email(email)
+
+    async def reset_password(self, username: str, new_password: str) -> bool:
+        """重置用户密码"""
+        await self._ensure_db()
+        password_hash = self._hash_password(new_password)
+        success = await db_update_user_password(username, password_hash)
+        if success and username in self._user_cache:
+            self._user_cache[username]["password_hash"] = password_hash
         return success
 
     async def verify_password(self, username: str, password: str) -> bool:
@@ -209,10 +235,13 @@ class SessionAuth:
         env_pass = os.environ.get("OPS_ADMIN_PASS", "KylinOps@2024")
         
         if not await db_user_exists(env_user):
-            await db_create_user(env_user, self._hash_password(env_pass))
+            await db_create_user(env_user, self._hash_password(env_pass), role="admin")
             self._user_cache[env_user] = {
                 "username": env_user,
                 "password_hash": self._hash_password(env_pass),
+                "role": "admin",
+                "phone": None,
+                "email": None,
                 "created_at": time.time(),
             }
 

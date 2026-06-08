@@ -66,6 +66,23 @@ class InitializeResult(BaseModel):
     serverInfo: ServerInfo
 
 
+class ListToolsResult(BaseModel):
+    tools: List[Tool] = Field(default_factory=list)
+
+
+class CallToolResult(BaseModel):
+    content: List[ToolResultContent] = Field(default_factory=list)
+    isError: bool = False
+    errorMessage: Optional[str] = None
+
+
+class MCPError(BaseModel):
+    """JSON-RPC 2.0 标准错误对象"""
+    code: int
+    message: str
+    data: Optional[Dict[str, Any]] = None
+
+
 class Resource(BaseModel):
     uri: str
     name: str
@@ -92,3 +109,33 @@ class MCPResponse(BaseModel):
     id: Optional[Union[int, str]] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[Dict[str, Any]] = None
+
+
+class ClientCapability(BaseModel):
+    """客户端能力声明"""
+    pass
+
+
+class ClientInfo(BaseModel):
+    """客户端信息"""
+    name: str
+    version: str
+
+
+class InitializeRequestParams(BaseModel):
+    """initialize 请求参数"""
+    protocolVersion: str = "2024-11-05"
+    capabilities: ClientCapability = Field(default_factory=ClientCapability)
+    clientInfo: Optional[ClientInfo] = None
+
+
+class ListToolsRequestParams(BaseModel):
+    """tools/list 请求参数"""
+    pass
+
+
+class CallToolRequestParams(BaseModel):
+    """tools/call 请求参数"""
+    name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    meta: Optional[Dict[str, Any]] = None

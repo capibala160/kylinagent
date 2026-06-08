@@ -26,6 +26,12 @@ class SecurityConfig(BaseModel):
     confirm_required_patterns: List[str] = Field(default_factory=list)
     restricted_user: str = "opsagent"
     allowed_command_prefixes: List[str] = Field(default_factory=list)
+    # MCP 工具参数级安全检查配置
+    sensitive_read_paths: List[str] = Field(default_factory=list)
+    critical_directories: List[str] = Field(default_factory=list)
+    allowed_log_paths: List[str] = Field(default_factory=list)
+    critical_services: List[str] = Field(default_factory=list)
+    protected_pids: List[str] = Field(default_factory=list)
 
 
 class AuditConfig(BaseModel):
@@ -36,9 +42,18 @@ class AuditConfig(BaseModel):
 
 
 class AuthConfig(BaseModel):
-    session_ttl: int = 28800  # 8小时，单位秒
+    session_ttl: int = 2592000  # 30天，单位秒（延长保持登录状态）
     enable_dev_token: bool = True  # 是否允许开发Token降级
     cookie_secure: bool = False  # Cookie 是否启用 secure（HTTPS 环境设为 True）
+
+
+class EmailConfig(BaseModel):
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    sender_name: str = "Kylin Ops Agent"
+    enabled: bool = False
 
 
 class MCPConfig(BaseModel):
@@ -52,6 +67,7 @@ class AppConfig(BaseModel):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    email: EmailConfig = Field(default_factory=EmailConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
 
 
