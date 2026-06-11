@@ -155,8 +155,8 @@ class SecurityGuard:
     # ========== MCP 工具参数级安全检查 ==========
     # 敏感文件路径（禁止读取）
     SENSITIVE_READ_PATHS = [
-        "/etc/shadow", "/etc/gshadow", "/etc/master.passwd",
-        "/etc/ssh/ssh_host_", "/root/.ssh/id_", "/home/",
+        "/etc/shadow", "/etc/gshadow", "/etc/master.passwd", "/etc/passwd",
+        "/etc/ssh/ssh_host_", "/root/.ssh/id_",
         "/proc/kcore", "/proc/sysrq-trigger",
         "/dev/mem", "/dev/port", "/dev/kmem",
         "/boot/System.map", "/boot/vmlinuz",
@@ -187,7 +187,6 @@ class SecurityGuard:
         service = arguments.get("service", "") or arguments.get("service_name", "")
         pid = str(arguments.get("pid", ""))
         target = arguments.get("target", "") or arguments.get("directory", "") or path
-        log_path = arguments.get("log_path", "") or arguments.get("directory", "") or path
         dry_run = arguments.get("dry_run", True)
 
         # 1. read_file / read_log: 禁止读取敏感文件
@@ -212,6 +211,7 @@ class SecurityGuard:
 
         # 3. clean_logs: 限制只能清理日志目录
         if tool_name == "clean_logs":
+            log_path = arguments.get("path", "") or arguments.get("log_path", "") or arguments.get("directory", "")
             real_log = posixpath.abspath(posixpath.expanduser(log_path))
             allowed = any(real_log.startswith(ap) for ap in self.ALLOWED_LOG_PATHS)
             if not allowed:
@@ -291,8 +291,10 @@ class SecurityGuard:
         
         # 如果参数级检查已经判定更高或同等风险，优先使用参数检查的结果
         if result.get("risk_level") and result["risk_level"] != RiskLevel.SAFE:
-            param_level_val = {"safe": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}.get(str(result["risk_level"]).lower(), 0)
-            rule_level_val = {"safe": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}.get(str(risk_level).lower(), 0)
+            # 使用 RiskLevel 枚举的 value 属性进行比较（"safe"/"low"/"medium"/"high"/"critical"）
+            LEVEL_MAP = {"safe": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+            param_level_val = LEVEL_MAP.get(result["risk_level"].value if hasattr(result["risk_level"], "value") else str(result["risk_level"]).lower(), 0)
+            rule_level_val = LEVEL_MAP.get(risk_level.value if hasattr(risk_level, "value") else str(risk_level).lower(), 0)
             if param_level_val >= rule_level_val:
                 risk_level = result["risk_level"]
                 matched_rules.insert(0, {"name": "parameter_check", "level": risk_level, "description": param_reason, "action": "block" if param_level_val == 4 else "confirm"})

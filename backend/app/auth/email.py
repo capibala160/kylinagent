@@ -16,15 +16,36 @@ logger = logging.getLogger(__name__)
 
 
 class EmailService:
-    """邮件发送服务"""
+    """邮件发送服务
+
+    配置优先级：环境变量 > config/agent.yaml
+    """
 
     def __init__(self):
+        # 尝试从配置文件读取
+        try:
+            from ..config import get_config
+            cfg = get_config()
+            email_cfg = getattr(cfg, "email", None)
+            if email_cfg:
+                self.smtp_host = os.environ.get("SMTP_HOST", getattr(email_cfg, "smtp_host", "") or "")
+                self.smtp_port = int(os.environ.get("SMTP_PORT", str(getattr(email_cfg, "smtp_port", 587) or 587)))
+                self.smtp_user = os.environ.get("SMTP_USER", getattr(email_cfg, "smtp_user", "") or "")
+                self.smtp_password = os.environ.get("SMTP_PASSWORD", getattr(email_cfg, "smtp_password", "") or "")
+                self.sender_name = os.environ.get("SMTP_SENDER_NAME", getattr(email_cfg, "sender_name", "Kylin Ops Agent") or "Kylin Ops Agent")
+            else:
+                self._fallback_env()
+        except Exception:
+            self._fallback_env()
+
+        self.enabled = bool(self.smtp_host and self.smtp_user and self.smtp_password)
+
+    def _fallback_env(self):
         self.smtp_host = os.environ.get("SMTP_HOST", "")
         self.smtp_port = int(os.environ.get("SMTP_PORT", "587"))
         self.smtp_user = os.environ.get("SMTP_USER", "")
         self.smtp_password = os.environ.get("SMTP_PASSWORD", "")
         self.sender_name = os.environ.get("SMTP_SENDER_NAME", "Kylin Ops Agent")
-        self.enabled = bool(self.smtp_host and self.smtp_user and self.smtp_password)
 
     async def send_verification_code(self, to_email: str, code: str, purpose: str = "注册") -> bool:
         """
@@ -64,14 +85,20 @@ class EmailService:
 
         try:
             msg = MIMEText(body, "plain", "utf-8")
-            msg["From"] = Header(f"{self.sender_name} <{self.smtp_user}>", "utf-8")
+            msg["From"] = self.smtp_user
             msg["To"] = Header(to_email, "utf-8")
             msg["Subject"] = Header(subject, "utf-8")
 
-            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.sendmail(self.smtp_user, [to_email], msg.as_string())
+            # 465 端口用 SSL，587 端口用 STARTTLS
+            if self.smtp_port == 465:
+                with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=10) as server:
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.sendmail(self.smtp_user, [to_email], msg.as_string())
+            else:
+                with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as server:
+                    server.starttls()
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.sendmail(self.smtp_user, [to_email], msg.as_string())
 
             logger.info(f"邮件发送成功: {to_email}, subject={subject}")
             return True

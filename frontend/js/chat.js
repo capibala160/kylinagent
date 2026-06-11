@@ -308,21 +308,22 @@ function addMessage(role, content, meta = {}) {
 }
 
 
+// 配置 marked：禁用不安全的 HTML 标签，启用 GitHub Flavored Markdown
+// 仅在模块初始化时配置一次，避免重复调用
+marked.setOptions({
+    gfm: true,
+    breaks: true,
+    headerIds: false,
+    mangle: false,
+    sanitize: false  // 由 DOMPurify 处理，marked 自身不做过滤
+});
+
 function renderMarkdown(text) {
     /**
      * 使用 marked.js 解析 Markdown + DOMPurify 净化 HTML
      * 彻底防御 XSS：先由 marked 生成 HTML，再由 DOMPurify 过滤危险标签/属性
      */
     if (!text || typeof text !== 'string') return '';
-    
-    // 配置 marked：禁用不安全的 HTML 标签，启用 GitHub Flavored Markdown
-    marked.setOptions({
-        gfm: true,
-        breaks: true,
-        headerIds: false,
-        mangle: false,
-        sanitize: false  // 由 DOMPurify 处理，marked 自身不做过滤
-    });
     
     // 先解析 Markdown 为 HTML
     const rawHtml = marked.parse(text);

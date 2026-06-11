@@ -215,10 +215,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # 其次使用 IP 地址
         client_ip = request.client.host if request.client else "unknown"
         
-        # 代理场景下获取真实 IP
-        forwarded_for = request.headers.get("X-Forwarded-For", "")
-        if forwarded_for:
-            client_ip = forwarded_for.split(",")[0].strip()
+        # 代理场景下获取真实 IP（仅在配置了可信代理时信任该头部）
+        import os
+        trusted_proxies = os.environ.get("TRUSTED_PROXIES", "").strip()
+        if trusted_proxies:
+            forwarded_for = request.headers.get("X-Forwarded-For", "")
+            if forwarded_for:
+                client_ip = forwarded_for.split(",")[0].strip()
         
         return user or f"ip:{client_ip}"
     

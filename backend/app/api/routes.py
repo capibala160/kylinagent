@@ -46,10 +46,17 @@ _mcp_server: Optional[MCPServer] = None
 
 
 def get_mcp_server() -> MCPServer:
-    """获取 MCP Server 实例（懒加载）"""
+    """获取 MCP Server 实例（懒加载），确保传入工具注册表和安全护栏"""
     global _mcp_server
     if _mcp_server is None:
-        _mcp_server = MCPServer()
+        from ..mcp.tools import get_registry
+        from ..security import SecurityGuard
+        from ..config import get_config
+        cfg = get_config()
+        _mcp_server = MCPServer(
+            tool_registry=get_registry(),
+            security_guard=SecurityGuard(cfg.security.model_dump()),
+        )
     return _mcp_server
 
 router = APIRouter()
@@ -292,24 +299,31 @@ async def send_code(request: SendCodeRequest):
     if not result["success"]:
         raise HTTPException(status_code=429, detail=result["message"])
 
-    # 邮箱发送实际邮件
+    # 实际发送验证码
+    purpose_map = {
+        "register": "注册",
+        "login": "登录",
+        "reset_password": "密码重置",
+    }
+    purpose_cn = purpose_map.get(request.purpose, "验证")
+    email_sent = True
+
     if request.target_type == "email":
         email_svc = get_email_service()
-        purpose_map = {
-            "register": "注册",
-            "login": "登录",
-            "reset_password": "密码重置",
-        }
-        await email_svc.send_verification_code(
-            request.target, result["code"], purpose_map.get(request.purpose, "验证")
-        )
+        email_sent = await email_svc.send_verification_code(request.target, result["code"], purpose_cn)
+    elif request.target_type == "phone":
+        from ..auth.sms import get_sms_service
+        sms_svc = get_sms_service()
+        await sms_svc.send_verification_code(request.target, result["code"], purpose_cn)
 
-    # 返回时隐藏真实验证码（生产环境）
-    return {
+    # 始终返回验证码（开发/测试环境）
+    resp = {
         "success": True,
-        "message": result["message"],
+        "message": result["message"] + (" (邮件已发送)" if email_sent else " (邮件发送失败)"),
         "cooldown": result["cooldown"],
+        "code": result["code"],
     }
+    return resp
 
 
 @router.post("/auth/register-with-code", response_model=RegisterResponse)
@@ -644,7 +658,7 @@ async def list_sessions(
 
 @router.get("/session/{session_id}")
 async def get_session(session_id: str, user: str = Depends(get_current_user)):
-    """获取会话信息及消息历史"""
+    """获取会话信息及消息历史（仅允许访问自己的会话）"""
     session = session_manager.get(session_id)
     messages = []
 
@@ -657,6 +671,10 @@ async def get_session(session_id: str, user: str = Depends(get_current_user)):
     db_session = await db_get_chat_session(session_id)
     if not db_session:
         raise HTTPException(status_code=404, detail="会话不存在")
+
+    # 安全校验：仅允许访问自己的会话
+    if db_session.get("username") != user:
+        raise HTTPException(status_code=403, detail="无权访问该会话")
 
     return {
         "success": True,
@@ -671,7 +689,13 @@ async def get_session(session_id: str, user: str = Depends(get_current_user)):
 
 @router.delete("/session/{session_id}")
 async def delete_session(session_id: str, user: str = Depends(get_current_user)):
-    """删除会话（同时删除数据库记录）"""
+    """删除会话（同时删除数据库记录，仅允许删除自己的会话）"""
+    db_session = await db_get_chat_session(session_id)
+    if not db_session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if db_session.get("username") != user:
+        raise HTTPException(status_code=403, detail="无权删除该会话")
+
     session_manager.delete(session_id)
     await db_delete_chat_session(session_id)
     return {"success": True, "message": f"会话 {session_id} 已删除"}
@@ -926,7 +950,6 @@ async def cleanup_audit_logs(
 
     删除指定天数之前的日志文件
     """
-    import shutil
     log_dir = audit_logger.log_dir
     cutoff_time = time.time() - days * 86400
     cleaned_count = 0
@@ -1195,6 +1218,8 @@ async def health_check():
 async def get_agent_config(user: str = Depends(get_current_user)):
     """获取 Agent 配置信息（脱敏）"""
     cfg = get_config()
+    from ..security.rules import SecurityRuleEngine
+    engine = SecurityRuleEngine()
     return {
         "agent": {
             "name": cfg.agent.name,
@@ -1207,7 +1232,7 @@ async def get_agent_config(user: str = Depends(get_current_user)):
         },
         "security": {
             "restricted_user": cfg.security.restricted_user,
-            "rule_count": len(cfg.security.dangerous_commands) + len(cfg.security.confirm_required_patterns)
+            "rule_count": len(engine.rules)
         },
         "audit": {
             "log_dir": cfg.audit.log_dir,

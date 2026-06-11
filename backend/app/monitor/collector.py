@@ -34,6 +34,8 @@ class SystemMonitor:
         # 网络流量速率计算（保存上一次数据）
         self._last_net_io: Dict[str, Dict] = {}
         self._last_net_time: float = 0
+        # CPU 统计差值计算（无 psutil 时使用）
+        self._last_cpu_stat: Optional[Tuple[int, int, float]] = None
 
     # ------------------------------------------------------------------
     # 公共接口
@@ -90,14 +92,25 @@ class SystemMonitor:
                     "model": model,
                 }
 
-            # Fallback: /proc/stat
+            # Fallback: /proc/stat（需两次采样计算差值）
             with open("/proc/stat", "r") as f:
                 line = f.readline()
             parts = line.strip().split()
             if parts[0] == "cpu" and len(parts) >= 8:
                 user, nice, system, idle, iowait, irq, softirq = map(int, parts[1:8])
                 total = user + nice + system + idle + iowait + irq + softirq
-                usage = 100.0 * (total - idle) / total if total > 0 else 0.0
+                now = time.time()
+                if self._last_cpu_stat is not None:
+                    last_total, last_idle, last_time = self._last_cpu_stat
+                    delta_total = total - last_total
+                    delta_idle = idle - last_idle
+                    if delta_total > 0:
+                        usage = 100.0 * (delta_total - delta_idle) / delta_total
+                    else:
+                        usage = 0.0
+                else:
+                    usage = 0.0  # 首次采集，无历史数据
+                self._last_cpu_stat = (total, idle, now)
             else:
                 usage = 0.0
 
@@ -134,6 +147,7 @@ class SystemMonitor:
                 total_gb = round(mem.total / (1024 ** 3), 2)
                 used_gb = round(mem.used / (1024 ** 3), 2)
                 free_gb = round(mem.available / (1024 ** 3), 2)
+                swap = psutil.swap_memory()
                 return {
                     "total_gb": total_gb,
                     "used_gb": used_gb,
@@ -141,6 +155,9 @@ class SystemMonitor:
                     "usage_percent": round(mem.percent, 1),
                     "buffers_mb": round(getattr(mem, 'buffers', 0) / (1024 ** 2), 1),
                     "cached_mb": round(getattr(mem, 'cached', 0) / (1024 ** 2), 1),
+                    "swap_total_gb": round(swap.total / (1024 ** 3), 2),
+                    "swap_used_gb": round(swap.used / (1024 ** 3), 2),
+                    "swap_usage_percent": round(swap.percent, 1),
                 }
 
             # Fallback: /proc/meminfo
@@ -157,6 +174,9 @@ class SystemMonitor:
             cached = meminfo.get("Cached", 0)
             available = meminfo.get("MemAvailable", free + buffers + cached)
             used = total - available
+            swap_total = meminfo.get("SwapTotal", 0)
+            swap_free = meminfo.get("SwapFree", 0)
+            swap_used = swap_total - swap_free
 
             return {
                 "total_gb": round(total / (1024 ** 3), 2),
@@ -165,9 +185,12 @@ class SystemMonitor:
                 "usage_percent": round(100.0 * used / total, 1) if total > 0 else 0,
                 "buffers_mb": round(buffers / (1024 ** 2), 1),
                 "cached_mb": round(cached / (1024 ** 2), 1),
+                "swap_total_gb": round(swap_total / (1024 ** 3), 2),
+                "swap_used_gb": round(swap_used / (1024 ** 3), 2),
+                "swap_usage_percent": round(100.0 * swap_used / swap_total, 1) if swap_total > 0 else 0,
             }
         except Exception as e:
-            return {"total_gb": 0, "used_gb": 0, "free_gb": 0, "usage_percent": 0, "error": str(e)}
+            return {"total_gb": 0, "used_gb": 0, "free_gb": 0, "usage_percent": 0, "swap_total_gb": 0, "swap_used_gb": 0, "swap_usage_percent": 0, "error": str(e)}
 
     def _read_disk(self) -> Dict[str, Any]:
         """读取磁盘信息（优先 psutil）"""
@@ -375,10 +398,10 @@ class SystemMonitor:
             failed_list = []
             for line in result.stdout.strip().split("\n"):
                 parts = line.split(None, 4)
-                if len(parts) >= 3:
-                    if parts[2] == "running":
+                if len(parts) >= 4:
+                    if parts[3] == "running":
                         running += 1
-                    elif parts[2] == "failed":
+                    elif parts[3] == "failed":
                         failed += 1
                         failed_list.append(parts[0])
 
@@ -442,6 +465,9 @@ class SystemMonitor:
                 "usage_percent": round(mem_wave + random.uniform(-3, 3), 1),
                 "buffers_mb": round(random.uniform(200, 500), 1),
                 "cached_mb": round(random.uniform(1000, 3000), 1),
+                "swap_total_gb": 8.0,
+                "swap_used_gb": round(random.uniform(0, 2), 2),
+                "swap_usage_percent": round(random.uniform(0, 25), 1),
             },
             "disk": {
                 "partitions": [

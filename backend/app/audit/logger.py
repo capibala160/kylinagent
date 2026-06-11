@@ -3,7 +3,7 @@ import json
 import time
 import logging
 import logging.handlers
-import shutil
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Callable
@@ -43,6 +43,9 @@ class AuditLogger:
         
         # 告警回调函数列表
         self._alert_callbacks: List[Callable] = []
+        
+        # 文件写入锁（防止并发下日志错乱）
+        self._lock = threading.Lock()
         
         # 告警统计（用于告警抑制）
         self._alert_stats = defaultdict(lambda: {"count": 0, "last_time": 0})
@@ -157,8 +160,9 @@ class AuditLogger:
         date_str = datetime.fromtimestamp(chain.start_time).strftime("%Y-%m-%d")
         filename = self.log_dir / f"chain_{date_str}.jsonl"
         
-        with open(filename, "a", encoding="utf-8") as f:
-            f.write(json.dumps(data, ensure_ascii=False) + "\n")
+        with self._lock:
+            with open(filename, "a", encoding="utf-8") as f:
+                f.write(json.dumps(data, ensure_ascii=False) + "\n")
         
         # 同时记录到 audit.log
         self.logger.info(
@@ -180,8 +184,9 @@ class AuditLogger:
         date_str = datetime.now().strftime("%Y-%m-%d")
         filename = self.log_dir / f"events_{date_str}.jsonl"
         
-        with open(filename, "a", encoding="utf-8") as f:
-            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        with self._lock:
+            with open(filename, "a", encoding="utf-8") as f:
+                f.write(json.dumps(event, ensure_ascii=False) + "\n")
         
         log_func = getattr(self.logger, level.lower(), self.logger.info)
         log_func(f"EVENT {event_type} | {json.dumps(details, ensure_ascii=False)[:500]}")

@@ -540,7 +540,6 @@ class MockLLMClient:
     @staticmethod
     def _build_tool_response(tool: str, arguments: Dict, thought: str, explanation: str) -> str:
         """构建标准化的工具调用 JSON 响应"""
-        import json
         return json.dumps({
             "thought": thought,
             "action": "call_tool",
@@ -676,7 +675,13 @@ def _extract_value(line: str) -> str:
     return line
 
 
-def get_llm_client(use_mock: bool = False) -> LLMClient:
+def get_llm_client(use_mock: bool = False):
+    """获取 LLM 客户端实例。
+
+    use_mock=True 时返回 MockLLMClient（用于测试/离线环境），
+    否则返回真实的 LLMClient。
+    两者实现了相同的接口（鸭子类型），但无继承关系。
+    """
     if use_mock:
         return MockLLMClient()
     return LLMClient()

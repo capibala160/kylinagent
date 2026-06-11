@@ -23,7 +23,7 @@ class ReadFileTool(BaseTool):
     
     # 敏感文件禁止读取（支持路径遍历防护后的匹配）
     SENSITIVE_PATHS = {
-        "/etc/shadow", "/etc/gshadow", "/etc/passwd-", "/etc/shadow-",
+        "/etc/shadow", "/etc/gshadow", "/etc/passwd", "/etc/passwd-", "/etc/shadow-",
         "/etc/ssh/sshd_config", "/etc/sudoers",
     }
     
@@ -39,11 +39,6 @@ class ReadFileTool(BaseTool):
     def _is_path_safe(self, path: str) -> bool:
         """检查路径是否安全（无路径遍历、非敏感文件）"""
         real_path = self._resolve_path(path)
-        
-        # 检查是否为符号链接（禁止通过符号链接读取敏感文件）
-        if os.path.islink(path) or os.path.islink(os.path.dirname(path)):
-            # 允许符号链接，但 realpath 已经解析了目标，所以再次检查目标
-            pass
         
         # 检查是否为敏感文件
         if real_path in self.SENSITIVE_PATHS:

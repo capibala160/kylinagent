@@ -590,15 +590,8 @@
                 <div class="tab-content" id="codeLogin">
                     <form id="codeLoginForm">
                         <div class="form-group">
-                            <label>登录方式</label>
-                            <select id="codeLoginType">
-                                <option value="email">邮箱登录</option>
-                                <option value="phone">手机号登录</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label id="codeLoginTargetLabel">邮箱地址</label>
-                            <input type="text" id="codeLoginTarget" placeholder="请输入邮箱" required>
+                            <label>邮箱地址</label>
+                            <input type="email" id="codeLoginTarget" placeholder="请输入邮箱" required>
                         </div>
                         <div class="form-group">
                             <label>验证码</label>
@@ -640,15 +633,9 @@
                                 <input type="password" id="regPassword2" placeholder="再次输入" required minlength="6" autocomplete="new-password">
                             </div>
                         </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>手机号（选填）</label>
-                                <input type="text" id="regPhone" placeholder="手机号" maxlength="20">
-                            </div>
-                            <div class="form-group">
-                                <label>邮箱（选填）</label>
-                                <input type="email" id="regEmail" placeholder="邮箱" maxlength="128">
-                            </div>
+                        <div class="form-group">
+                            <label>邮箱</label>
+                            <input type="email" id="regEmail" placeholder="请输入邮箱" required maxlength="128">
                         </div>
                         <button type="submit" class="submit-btn" id="registerBtn">注 册</button>
                         <div class="form-message" id="registerError"></div>
@@ -659,15 +646,8 @@
                 <div class="tab-content" id="codeRegister">
                     <form id="codeRegisterForm">
                         <div class="form-group">
-                            <label>注册方式</label>
-                            <select id="codeRegType">
-                                <option value="email">邮箱注册</option>
-                                <option value="phone">手机号注册</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label id="codeRegTargetLabel">邮箱地址</label>
-                            <input type="text" id="codeRegTarget" placeholder="请输入邮箱" required>
+                            <label>邮箱地址</label>
+                            <input type="email" id="codeRegTarget" placeholder="请输入邮箱" required>
                         </div>
                         <div class="form-group">
                             <label>验证码</label>
@@ -695,59 +675,31 @@
 
             <!-- ===== 找回密码面板 ===== -->
             <div id="forgotPanel" style="display:none;">
-                <div class="tab-nav">
-                    <button class="tab-btn active" data-tab="emailForgot">邮箱找回</button>
-                    <button class="tab-btn" data-tab="phoneForgot">手机找回</button>
-                </div>
+                <h3 style="text-align:center;margin-bottom:20px;">邮箱找回密码</h3>
 
-                <div class="tab-content active" id="emailForgot">
-                    <form id="forgotEmailForm">
-                        <div class="form-group">
-                            <label>邮箱地址</label>
-                            <div class="input-wrap icon-left">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                                <input type="email" id="forgotEmail" placeholder="请输入注册邮箱" required>
-                            </div>
+                <form id="forgotEmailForm">
+                    <div class="form-group">
+                        <label>邮箱地址</label>
+                        <div class="input-wrap icon-left">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                            <input type="email" id="forgotEmail" placeholder="请输入注册邮箱" required>
                         </div>
-                        <div class="form-group">
-                            <label>验证码</label>
-                            <div class="input-row">
-                                <input type="text" id="forgotEmailCode" placeholder="6位验证码" required maxlength="6" inputmode="numeric">
-                                <button type="button" id="forgotEmailSendBtn">获取验证码</button>
-                            </div>
+                    </div>
+                    <div class="form-group">
+                        <label>验证码</label>
+                        <div class="input-row">
+                            <input type="text" id="forgotEmailCode" placeholder="6位验证码" required maxlength="6" inputmode="numeric">
+                            <button type="button" id="forgotEmailSendBtn">获取验证码</button>
                         </div>
-                        <div class="form-group">
-                            <label>新密码</label>
-                            <input type="password" id="forgotEmailNewPwd" placeholder="至少6位" required minlength="6">
-                        </div>
-                        <button type="submit" class="submit-btn" id="forgotEmailBtn">重置密码</button>
-                        <div class="form-message" id="forgotEmailError"></div>
-                        <div class="form-footer"><a id="backToLogin">返回登录</a></div>
-                    </form>
-                </div>
-
-                <div class="tab-content" id="phoneForgot">
-                    <form id="forgotPhoneForm">
-                        <div class="form-group">
-                            <label>手机号</label>
-                            <input type="text" id="forgotPhone" placeholder="请输入注册手机号" required maxlength="20">
-                        </div>
-                        <div class="form-group">
-                            <label>验证码</label>
-                            <div class="input-row">
-                                <input type="text" id="forgotPhoneCode" placeholder="6位验证码" required maxlength="6" inputmode="numeric">
-                                <button type="button" id="forgotPhoneSendBtn">获取验证码</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label>新密码</label>
-                            <input type="password" id="forgotPhoneNewPwd" placeholder="至少6位" required minlength="6">
-                        </div>
-                        <button type="submit" class="submit-btn" id="forgotPhoneBtn">重置密码</button>
-                        <div class="form-message" id="forgotPhoneError"></div>
-                        <div class="form-footer"><a id="backToLogin2">返回登录</a></div>
-                    </form>
-                </div>
+                    </div>
+                    <div class="form-group">
+                        <label>新密码</label>
+                        <input type="password" id="forgotEmailNewPwd" placeholder="至少6位" required minlength="6">
+                    </div>
+                    <button type="submit" class="submit-btn" id="forgotEmailBtn">重置密码</button>
+                    <div class="form-message" id="forgotEmailError"></div>
+                    <div class="form-footer"><a id="backToLogin">返回登录</a></div>
+                </form>
             </div>
         </div>
     </main>
@@ -781,7 +733,6 @@
         document.getElementById('toLogin2').addEventListener('click', () => showPanel('login'));
         document.getElementById('toForgot').addEventListener('click', () => showPanel('forgot'));
         document.getElementById('backToLogin').addEventListener('click', () => showPanel('login'));
-        document.getElementById('backToLogin2').addEventListener('click', () => showPanel('login'));
 
         // ===== Tab 切换 =====
         document.querySelectorAll('.tab-nav').forEach(nav => {
@@ -798,18 +749,9 @@
             });
         });
 
-        // ===== 动态标签 =====
-        function setupTypeSwitch(selectId, labelId, inputId) {
-            document.getElementById(selectId).addEventListener('change', function() {
-                const isPhone = this.value === 'phone';
-                document.getElementById(labelId).textContent = isPhone ? '手机号' : '邮箱地址';
-                const input = document.getElementById(inputId);
-                input.placeholder = isPhone ? '请输入手机号' : '请输入邮箱';
-                input.type = isPhone ? 'text' : 'email';
-            });
-        }
-        setupTypeSwitch('codeLoginType', 'codeLoginTargetLabel', 'codeLoginTarget');
-        setupTypeSwitch('codeRegType', 'codeRegTargetLabel', 'codeRegTarget');
+        // 验证码登录/注册固定为邮箱方式
+        document.getElementById('codeLoginTarget').type = 'email';
+        document.getElementById('codeRegTarget').type = 'email';
 
         // ===== 已登录检测 =====
         async function checkLoggedIn() {
@@ -851,7 +793,8 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
-                    showMsg(errorId, '验证码已发送', true);
+                    const msg = data.code ? '验证码: ' + data.code : '验证码已发送';
+                    showMsg(errorId, msg, true);
                     let sec = data.cooldown || 60;
                     btn.textContent = sec + 's';
                     const timer = setInterval(() => {
@@ -896,15 +839,13 @@
         // ===== 验证码登录 =====
         document.getElementById('codeLoginSendBtn').addEventListener('click', () => {
             const target = document.getElementById('codeLoginTarget').value.trim();
-            const targetType = document.getElementById('codeLoginType').value;
-            if (!target) { showMsg('codeLoginError', '请输入' + (targetType === 'phone' ? '手机号' : '邮箱')); return; }
-            sendCode(target, targetType, 'login', 'codeLoginSendBtn', 'codeLoginError');
+            if (!target) { showMsg('codeLoginError', '请输入邮箱'); return; }
+            sendCode(target, 'email', 'login', 'codeLoginSendBtn', 'codeLoginError');
         });
         document.getElementById('codeLoginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('codeLoginBtn');
             const target = document.getElementById('codeLoginTarget').value.trim();
-            const targetType = document.getElementById('codeLoginType').value;
             const code = document.getElementById('codeLoginCode').value.trim();
             clearMsg('codeLoginError');
             btn.disabled = true; btn.textContent = '登录中...';
@@ -913,7 +854,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
-                    body: JSON.stringify({ target, target_type: targetType, code })
+                    body: JSON.stringify({ target, target_type: 'email', code })
                 });
                 if (res.ok) window.location.href = '/';
                 else { const data = await res.json(); showMsg('codeLoginError', data.detail || '登录失败'); }
@@ -928,15 +869,13 @@
             const username = document.getElementById('regUsername').value.trim();
             const password = document.getElementById('regPassword').value;
             const password2 = document.getElementById('regPassword2').value;
-            const phone = document.getElementById('regPhone').value.trim() || undefined;
-            const email = document.getElementById('regEmail').value.trim() || undefined;
+            const email = document.getElementById('regEmail').value.trim();
             clearMsg('registerError');
+            if (!email) { showMsg('registerError', '请输入邮箱'); return; }
             if (password !== password2) { showMsg('registerError', '两次输入的密码不一致'); return; }
             btn.disabled = true; btn.textContent = '注册中...';
             try {
-                const body = { username, password };
-                if (phone) body.phone = phone;
-                if (email) body.email = email;
+                const body = { username, password, email };
                 const res = await fetch(API_BASE + '/auth/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -953,15 +892,13 @@
         // ===== 验证码注册 =====
         document.getElementById('codeRegSendBtn').addEventListener('click', () => {
             const target = document.getElementById('codeRegTarget').value.trim();
-            const targetType = document.getElementById('codeRegType').value;
-            if (!target) { showMsg('codeRegError', '请输入' + (targetType === 'phone' ? '手机号' : '邮箱')); return; }
-            sendCode(target, targetType, 'register', 'codeRegSendBtn', 'codeRegError');
+            if (!target) { showMsg('codeRegError', '请输入邮箱'); return; }
+            sendCode(target, 'email', 'register', 'codeRegSendBtn', 'codeRegError');
         });
         document.getElementById('codeRegisterForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('codeRegBtn');
             const target = document.getElementById('codeRegTarget').value.trim();
-            const targetType = document.getElementById('codeRegType').value;
             const code = document.getElementById('codeRegCode').value.trim();
             const username = document.getElementById('codeRegUsername').value.trim();
             const password = document.getElementById('codeRegPassword').value;
@@ -971,7 +908,7 @@
                 const res = await fetch(API_BASE + '/auth/register-with-code', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ target, target_type: targetType, code, username, password })
+                    body: JSON.stringify({ target, target_type: 'email', code, username, password })
                 });
                 if (res.ok) {
                     showMsg('codeRegError', '注册成功，请登录', true);
@@ -982,37 +919,32 @@
         });
 
         // ===== 找回密码 =====
-        function setupForgot(emailId, phoneId) {
-            document.getElementById(emailId + 'SendBtn').addEventListener('click', () => {
-                const target = document.getElementById(emailId).value.trim();
-                if (!target) { showMsg(emailId + 'Error', '请输入' + (emailId.startsWith('forgotPhone') ? '手机号' : '邮箱')); return; }
-                sendCode(target, emailId.startsWith('forgotPhone') ? 'phone' : 'email', 'reset_password', emailId + 'SendBtn', emailId + 'Error');
-            });
-            document.getElementById(emailId + 'Form').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const btn = document.getElementById(emailId + 'Btn');
-                const target = document.getElementById(emailId).value.trim();
-                const code = document.getElementById(emailId + 'Code').value.trim();
-                const newPassword = document.getElementById(emailId + 'NewPwd').value;
-                clearMsg(emailId + 'Error');
-                btn.disabled = true; btn.textContent = '重置中...';
-                try {
-                    const targetType = emailId.startsWith('forgotPhone') ? 'phone' : 'email';
-                    const res = await fetch(API_BASE + '/auth/reset-password', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ target, target_type: targetType, code, new_password: newPassword })
-                    });
-                    if (res.ok) {
-                        showMsg(emailId + 'Error', '密码重置成功，请登录', true);
-                        setTimeout(() => showPanel('login'), 1500);
-                    } else { const data = await res.json(); showMsg(emailId + 'Error', data.detail || '重置失败'); }
-                } catch (e) { showMsg(emailId + 'Error', '网络错误'); }
-                finally { btn.disabled = false; btn.textContent = '重置密码'; }
-            });
-        }
-        setupForgot('forgotEmail', 'forgotPhone');
-        setupForgot('forgotPhone', '');
+        document.getElementById('forgotEmailSendBtn').addEventListener('click', () => {
+            const target = document.getElementById('forgotEmail').value.trim();
+            if (!target) { showMsg('forgotEmailError', '请输入邮箱'); return; }
+            sendCode(target, 'email', 'reset_password', 'forgotEmailSendBtn', 'forgotEmailError');
+        });
+        document.getElementById('forgotEmailForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('forgotEmailBtn');
+            const target = document.getElementById('forgotEmail').value.trim();
+            const code = document.getElementById('forgotEmailCode').value.trim();
+            const newPassword = document.getElementById('forgotEmailNewPwd').value;
+            clearMsg('forgotEmailError');
+            btn.disabled = true; btn.textContent = '重置中...';
+            try {
+                const res = await fetch(API_BASE + '/auth/reset-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target, target_type: 'email', code, new_password: newPassword })
+                });
+                if (res.ok) {
+                    showMsg('forgotEmailError', '密码重置成功，请登录', true);
+                    setTimeout(() => showPanel('login'), 1500);
+                } else { const data = await res.json(); showMsg('forgotEmailError', data.detail || '重置失败'); }
+            } catch (e) { showMsg('forgotEmailError', '网络错误'); }
+            finally { btn.disabled = false; btn.textContent = '重置密码'; }
+        });
     </script>
 </body>
 </html>

@@ -56,6 +56,19 @@ class EmailConfig(BaseModel):
     enabled: bool = False
 
 
+class SMSConfig(BaseModel):
+    provider: str = "log"       # log / aliyun / twilio / custom
+    aliyun_access_key: str = ""
+    aliyun_secret: str = ""
+    aliyun_sign_name: str = "Kylin Ops"
+    aliyun_template_code: str = ""
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from_number: str = ""
+    custom_url: str = ""
+    custom_token: str = ""
+
+
 class MCPConfig(BaseModel):
     server_name: str = "kylin-ops-mcp-server"
     version: str = "1.0.0"
@@ -68,6 +81,7 @@ class AppConfig(BaseModel):
     audit: AuditConfig = Field(default_factory=AuditConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     email: EmailConfig = Field(default_factory=EmailConfig)
+    sms: SMSConfig = Field(default_factory=SMSConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
 
 
@@ -79,17 +93,25 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         config_path = project_root / "config" / "agent.yaml"
     else:
         config_path = Path(config_path)
-    
+
     if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        return AppConfig(**data)
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            if data is None:
+                print(f"[WARN] 配置文件为空: {config_path}，使用默认配置")
+                return AppConfig()
+            return AppConfig(**data)
+        except Exception as e:
+            print(f"[ERROR] 配置文件解析失败: {config_path}\n  错误: {e}\n  使用默认配置启动")
+            return AppConfig()
     return AppConfig()
 
 
 # 全局配置实例（支持热更新和测试替换）
 _config: Optional[AppConfig] = None
 _config_path: Optional[str] = None
+_config_path_dirty: bool = False
 
 
 def get_config(force_reload: bool = False) -> AppConfig:
@@ -102,19 +124,22 @@ def get_config(force_reload: bool = False) -> AppConfig:
     Returns:
         AppConfig 实例
     """
-    global _config
-    if _config is None or force_reload:
+    global _config, _config_path_dirty
+    if _config is None or force_reload or _config_path_dirty:
         _config = load_config(_config_path)
+        _config_path_dirty = False
     return _config
 
 
 def set_config_path(path: Optional[str] = None):
-    """设置配置文件路径，下次 get_config 时生效"""
-    global _config_path
+    """设置配置文件路径，下次 get_config 时自动重新加载"""
+    global _config_path, _config_path_dirty
     _config_path = path
+    _config_path_dirty = True
 
 
 def reset_config():
     """重置配置（主要用于单元测试）"""
-    global _config
+    global _config, _config_path_dirty
     _config = None
+    _config_path_dirty = False

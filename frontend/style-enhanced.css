@@ -736,9 +736,10 @@
 
 /* 审计日志改进 */
 .audit-list {
-    flex: 1;
+    flex: 1 1 auto;
     overflow-y: auto;
     padding: 18px 24px;
+    min-height: 0;
 }
 
 .audit-item {
@@ -1143,6 +1144,15 @@ pre:hover .code-copy-btn {
     background: rgba(99, 86, 234, 0.06);
 }
 
+/* 视图通用滚动约束 */
+.view {
+    overflow: hidden;
+}
+
+.view.active {
+    display: flex;
+}
+
 /* 仪表盘改进 */
 .dashboard-content {
     flex: 1;
@@ -1260,7 +1270,8 @@ pre:hover .code-copy-btn {
 
 .chart-container {
     width: 100%;
-    height: 250px;
+    height: 260px;
+    min-height: 200px;
     flex-shrink: 0;
 }
 
@@ -1408,6 +1419,9 @@ pre:hover .code-copy-btn {
     display: flex;
     flex-direction: column;
     gap: 20px;
+    flex-shrink: 0;
+    max-height: 55%;
+    overflow-y: auto;
 }
 
 .stats-summary {
@@ -1634,7 +1648,8 @@ pre:hover .code-copy-btn {
     }
 
     .chart-container {
-        height: 220px;
+        height: 240px;
+        min-height: 180px;
     }
 
     .process-table tbody td:last-child {
@@ -1657,6 +1672,10 @@ pre:hover .code-copy-btn {
 
     .stats-chart-container {
         height: 190px;
+    }
+
+    .audit-stats {
+        max-height: 45%;
     }
 
     .session-list-section {

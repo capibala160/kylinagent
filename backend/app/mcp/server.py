@@ -175,7 +175,7 @@ class MCPServer:
 
         # 2. 安全校验（命令级风险评级）
         cmd_str = f"{tool_name}({json.dumps(arguments, ensure_ascii=False)})"
-        cmd_safe, cmd_reason, cmd_detail = self.guard.validate_command(cmd_str, tool_name)
+        cmd_safe, cmd_reason, cmd_detail = self.guard.validate_command(cmd_str, tool_name, arguments)
         risk_level = cmd_detail.get("risk_level", "safe")
 
         if not cmd_safe and risk_level in ("critical", "high"):

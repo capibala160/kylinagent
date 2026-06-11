@@ -10,7 +10,7 @@ from ..mcp.tools import get_registry
 from ..mcp import MCPServer, MCPClient
 from ..security import SecurityGuard, PrivilegeExecutor
 from ..audit import AuditLogger, ReasoningChain, ChainNodeType
-from ..analysis import RootCauseAnalyzer
+
 
 
 class OpsAgent:
@@ -380,7 +380,8 @@ class OpsAgent:
                     "elevation_command": elevation_command,
                 }
             
-            # 6b. 如果需要确认，返回确认请求
+            # 6b. 同时有 CRITICAL 阻断和 MEDIUM/HIGH 需确认时，
+            # 优先显示阻断信息，避免给用户造成可以绕过安全护栏的错觉
             if needs_confirm and not all_safe:
                 chain.finalize("blocked", f"存在被阻断的高危操作")
                 self.audit.log_chain(chain)

@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 from app.config import get_config
 from app.api.routes import router
 from app.middleware import RateLimitMiddleware, RequestMonitorMiddleware
+from app.middleware.monitor import RequestMonitor
 
 config = get_config()
 
@@ -24,17 +25,19 @@ app = FastAPI(
 )
 
 # 请求监控中间件（最先添加，确保所有请求都被监控）
-request_monitor = RequestMonitorMiddleware(app)
-app.add_middleware(RequestMonitorMiddleware)
+# request_monitor 被 api/monitor.py 导入使用
+request_monitor = RequestMonitor()
+app.add_middleware(RequestMonitorMiddleware, monitor=request_monitor)
 
 # API 限流中间件
-rate_limit = RateLimitMiddleware(
-    app,
+# rate_limit 被 api/monitor.py 导入使用，配置须与 add_middleware 保持一致
+_rate_limit_config = dict(
     default_requests_per_minute=60,
     default_requests_per_hour=1000,
     default_burst_size=10,
 )
-app.add_middleware(RateLimitMiddleware)
+rate_limit = RateLimitMiddleware(app, **_rate_limit_config)
+app.add_middleware(RateLimitMiddleware, **_rate_limit_config)
 
 # CORS 配置
 # 生产环境应限制为特定域名，避免凭证泄露
@@ -45,8 +48,15 @@ if _cors_env.strip():
     # 生产环境：严格限制为配置的域名
     cors_origins = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
 else:
-    # 开发环境：仅允许本地
-    cors_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
+    # 开发环境：允许本地常见端口（8000/5173 等）
+    cors_origins = [
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:5173",   # Vite 默认开发端口
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",   # 其他常见前端端口
+        "http://127.0.0.1:3000",
+    ]
 
 app.add_middleware(
     CORSMiddleware,

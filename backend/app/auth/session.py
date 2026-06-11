@@ -235,10 +235,11 @@ class SessionAuth:
         env_pass = os.environ.get("OPS_ADMIN_PASS", "KylinOps@2024")
         
         if not await db_user_exists(env_user):
-            await db_create_user(env_user, self._hash_password(env_pass), role="admin")
+            password_hash = self._hash_password(env_pass)
+            await db_create_user(env_user, password_hash, role="admin")
             self._user_cache[env_user] = {
                 "username": env_user,
-                "password_hash": self._hash_password(env_pass),
+                "password_hash": password_hash,
                 "role": "admin",
                 "phone": None,
                 "email": None,

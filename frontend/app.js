@@ -35,6 +35,9 @@ async function init() {
         const data = await res.json();
         currentUsername = data.username || '';
         currentUserRole = data.role || 'user';
+        // 更新欢迎页用户名
+        const welcomeUser = document.getElementById('welcomeUsername');
+        if (welcomeUser) welcomeUser.textContent = currentUsername || '用户';
         // 管理员显示审批管理入口
         if (currentUserRole === 'admin') {
             const approvalsNav = document.getElementById('tab-approvals');
@@ -47,8 +50,12 @@ async function init() {
 
     sessionIdEl.textContent = currentSessionId;
     checkHealth();
+    updateWelcomeStats();
     setupEventListeners();
     setupNavigation();
+
+    // 每 60 秒刷新欢迎面板状态
+    setInterval(updateWelcomeStats, 60000);
     initDashboardCharts();
     initAuditStatsCharts();
     startDashboardAutoRefresh();
@@ -56,6 +63,34 @@ async function init() {
     
     // 每 30 秒检查一次健康状态
     setInterval(checkHealth, 30000);
+}
+
+async function updateWelcomeStats() {
+    try {
+        const [healthRes, configRes] = await Promise.all([
+            apiGet('/health'),
+            apiGet('/config')
+        ]);
+        const statusEl = document.getElementById('wsStatus');
+        const toolsEl = document.getElementById('wsTools');
+        const rulesEl = document.getElementById('wsRules');
+
+        if (statusEl) {
+            const healthy = healthRes.status === 'healthy';
+            statusEl.textContent = healthy ? '运行正常' : '需要注意';
+            statusEl.style.color = healthy ? '#16a34a' : '#dc2626';
+        }
+        if (toolsEl) {
+            const count = (healthRes.components && healthRes.components.mcp_tools && healthRes.components.mcp_tools.tools_count) || '--';
+            toolsEl.textContent = count + ' 个';
+        }
+        if (rulesEl) {
+            const rules = (configRes.security && configRes.security.rule_count) || '--';
+            rulesEl.textContent = rules + ' 条';
+        }
+    } catch (e) {
+        // 静默失败
+    }
 }
 
 function setupEventListeners() {
@@ -193,9 +228,63 @@ function setupEventListeners() {
         loadAuditStats();
     });
     document.getElementById('auditFilter').addEventListener('change', loadAuditLogs);
+    const auditRiskFilter = document.getElementById('auditRiskFilter');
+    if (auditRiskFilter) {
+        auditRiskFilter.addEventListener('change', loadAuditLogs);
+    }
+    const auditSearch = document.getElementById('auditSearchInput');
+    if (auditSearch) {
+        let searchTimer;
+        auditSearch.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(loadAuditLogs, 300);
+        });
+    }
     const auditStatsDays = document.getElementById('auditStatsDays');
     if (auditStatsDays) {
         auditStatsDays.addEventListener('change', loadAuditStats);
+    }
+    // 工具搜索
+    const toolSearch = document.getElementById('toolSearchInput');
+    if (toolSearch) {
+        let toolTimer;
+        toolSearch.addEventListener('input', () => {
+            clearTimeout(toolTimer);
+            toolTimer = setTimeout(() => {
+                const query = toolSearch.value.trim().toLowerCase();
+                const catFilter = document.getElementById('toolCategoryFilter')?.value || '';
+                let tools = allToolsCache;
+                if (catFilter) tools = tools.filter(t => getToolCategory(t.name) === catFilter);
+                if (query) tools = tools.filter(t => t.name.toLowerCase().includes(query) || (t.description || '').toLowerCase().includes(query));
+                renderToolsGrid(tools);
+            }, 200);
+        });
+    }
+    const toolCatFilter = document.getElementById('toolCategoryFilter');
+    if (toolCatFilter) {
+        toolCatFilter.addEventListener('change', () => {
+            filterToolsByCategory(toolCatFilter.value);
+        });
+    }
+
+    // 导出按钮
+    const exportAuditBtn = document.getElementById('exportAuditBtn');
+    if (exportAuditBtn) {
+        exportAuditBtn.addEventListener('click', exportAuditLogs);
+    }
+    // 清空筛选
+    const clearAuditBtn = document.getElementById('clearAuditFilter');
+    if (clearAuditBtn) {
+        clearAuditBtn.addEventListener('click', () => {
+            const filterEl = document.getElementById('auditFilter');
+            const riskEl = document.getElementById('auditRiskFilter');
+            const searchEl = document.getElementById('auditSearchInput');
+            if (filterEl) filterEl.value = '';
+            if (riskEl) riskEl.value = '';
+            if (searchEl) searchEl.value = '';
+            loadAuditLogs();
+            loadAuditStats();
+        });
     }
     
     // 仪表盘刷新
@@ -235,10 +324,29 @@ function setupNavigation() {
             if (viewName === 'audit') {
                 loadAuditLogs();
                 loadAuditStats();
+                // 切换tab后延迟resize，确保DOM渲染完成
+                setTimeout(() => {
+                    auditStatusChart && auditStatusChart.resize();
+                    auditTrendChart && auditTrendChart.resize();
+                    auditToolsChart && auditToolsChart.resize();
+                    auditRiskChart && auditRiskChart.resize();
+                    auditBlockedChart && auditBlockedChart.resize();
+                    auditUsersChart && auditUsersChart.resize();
+                    auditNodeTypeChart && auditNodeTypeChart.resize();
+                }, 100);
             }
             if (viewName === 'tools') loadTools();
             if (viewName === 'config') loadConfig();
-            if (viewName === 'dashboard') loadDashboard();
+            if (viewName === 'dashboard') {
+                loadDashboard();
+                // 切换tab后延迟resize，确保DOM渲染完成
+                setTimeout(() => {
+                    cpuMemChart && cpuMemChart.resize();
+                    diskChart && diskChart.resize();
+                    serviceChart && serviceChart.resize();
+                    networkChart && networkChart.resize();
+                }, 100);
+            }
             if (viewName === 'approvals') loadApprovals();
         });
     });
@@ -255,24 +363,58 @@ function setupNavigation() {
 async function loadAuditLogs() {
     const list = document.getElementById('auditList');
     const status = document.getElementById('auditFilter').value;
-    
+    const searchQuery = (document.getElementById('auditSearchInput')?.value || '').trim().toLowerCase();
+    const riskFilter = document.getElementById('auditRiskFilter')?.value || '';
+
     try {
-        const url = '/audit/chains' + (status ? `?status=${status}&limit=100` : '?limit=100');
+        const url = '/audit/chains' + (status ? `?status=${status}&limit=200` : '?limit=200');
         const data = await apiGet(url);
-        
+
         // 兼容后端返回格式：直接数组或 {chains: [...]}
-        const chains = Array.isArray(data) ? data : (data.chains || []);
-        
+        let chains = Array.isArray(data) ? data : (data.chains || []);
+
+        // 客户端搜索过滤
+        if (searchQuery) {
+            chains = chains.filter(c =>
+                (c.user_input || '').toLowerCase().includes(searchQuery)
+            );
+        }
+
+        // 客户端风险等级过滤
+        if (riskFilter) {
+            chains = chains.filter(c => {
+                const nodes = c.nodes || [];
+                return nodes.some(n =>
+                    n.node_type === 'security_check' &&
+                    (n.output_data?.risk_level || 'safe') === riskFilter
+                );
+            });
+        }
+
+        // 限制显示数量
+        chains = chains.slice(0, 100);
+
         if (!chains || chains.length === 0) {
-            list.innerHTML = '<p class="empty-state">暂无记录</p>';
+            list.innerHTML = '<p class="empty-state">暂无匹配记录</p>';
             return;
         }
-        
-        list.innerHTML = chains.map(chain => `
+
+        list.innerHTML = chains.map(chain => {
+            // 提取风险等级
+            let riskLevel = '';
+            for (const node of (chain.nodes || [])) {
+                if (node.node_type === 'security_check' && node.output_data?.risk_level) {
+                    riskLevel = node.output_data.risk_level;
+                    break;
+                }
+            }
+            const riskBadge = riskLevel ? `<span class="risk-badge risk-${riskLevel}">${riskLevel}</span>` : '';
+
+            return `
             <div class="audit-item status-${chain.final_status}" onclick="showChainDetails('${chain.chain_id}')">
                 <div class="audit-item-header">
-                    <span class="audit-item-title">${escapeHtml(chain.user_input.substr(0, 50))}${chain.user_input.length > 50 ? '...' : ''}</span>
-                    <span class="audit-item-status">${chain.final_status}</span>
+                    <span class="audit-item-title">${escapeHtml((chain.user_input || '').substr(0, 50))}${(chain.user_input || '').length > 50 ? '...' : ''}</span>
+                    <span class="audit-item-status">${chain.final_status} ${riskBadge}</span>
                 </div>
                 <div class="audit-item-meta">
                     <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="4"/><polyline points="12 7 12 12 15 15"/></svg> ${chain.duration_sec ? chain.duration_sec + 's' : 'N/A'}</span>
@@ -280,101 +422,294 @@ async function loadAuditLogs() {
                     <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="4"/><polyline points="12 7 12 12 15 15"/></svg> ${new Date(chain.start_time * 1000).toLocaleString()}</span>
                 </div>
             </div>
-        `).join('');
+        `}).join('');
     } catch (e) {
         list.innerHTML = `<p class="empty-state">加载失败: ${e.message}</p>`;
     }
 }
 
+async function exportAuditLogs() {
+    try {
+        const format = confirm('导出格式：确定=JSON，取消=CSV') ? 'json' : 'csv';
+        const url = `/api/audit/export?format=${format}&limit=500`;
+        const response = await fetch(url, { credentials: 'include' });
+        if (!response.ok) throw new Error('导出失败');
+
+        const blob = await response.blob();
+        const downloadUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        const ts = new Date().toISOString().slice(0, 10);
+        a.download = `audit_export_${ts}.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(downloadUrl);
+
+        if (typeof showNotification === 'function') {
+            showNotification('导出成功', `审计日志已导出为 ${format.toUpperCase()} 文件`);
+        }
+    } catch (e) {
+        alert('导出失败: ' + e.message);
+    }
+}
+
 // ===== 工具列表 =====
+let allToolsCache = [];
+
 async function loadTools() {
     const grid = document.getElementById('toolsGrid');
-    
+    const badge = document.getElementById('toolsCountBadge');
+    const statsBar = document.getElementById('toolsStatsBar');
+    const catFilter = document.getElementById('toolCategoryFilter');
+
     try {
         const data = await apiGet('/tools');
-        
-        if (!data.tools || data.tools.length === 0) {
+        const tools = (data.result && data.result.tools) ? data.result.tools : [];
+        allToolsCache = tools;
+
+        if (tools.length === 0) {
             grid.innerHTML = '<p class="empty-state">暂无工具</p>';
+            if (badge) badge.textContent = '-- 个工具';
             return;
         }
-        grid.innerHTML = data.tools.map(tool => `
-            <div class="tool-card">
-                <h4>${escapeHtml(tool.name)}</h4>
-                <p>${escapeHtml(tool.description)}</p>
-                <div class="tool-card-params">
-                    参数: ${Object.keys(tool.parameters.properties || {}).map(p => 
-                        `<code>${escapeHtml(p)}</code>`
-                    ).join(', ') || '无'}
-                </div>
-            </div>
-        `).join('');
+
+        // 统计
+        if (badge) badge.textContent = tools.length + ' 个工具';
+
+        // 分类统计
+        const catCounts = {};
+        tools.forEach(t => {
+            const cat = getToolCategory(t.name);
+            catCounts[cat] = (catCounts[cat] || 0) + 1;
+        });
+
+        if (statsBar) {
+            statsBar.innerHTML = Object.entries(catCounts).map(([cat, count]) =>
+                `<span class="tools-stat-chip" data-cat="${cat}" onclick="filterToolsByCategory('${cat}')">${cat} <b>${count}</b></span>`
+            ).join('');
+        }
+
+        // 分类下拉
+        if (catFilter) {
+            catFilter.innerHTML = '<option value="">全部类别</option>' +
+                Object.keys(catCounts).sort().map(c => `<option value="${c}">${c} (${catCounts[c]})</option>`).join('');
+        }
+
+        renderToolsGrid(tools);
     } catch (e) {
         grid.innerHTML = `<p class="empty-state">加载失败: ${e.message}</p>`;
     }
 }
 
+function getToolCategory(name) {
+    const cats = {
+        'service': '🛠️ 服务管理', 'restart_service': '🛠️ 服务管理', 'start_service': '🛠️ 服务管理', 'stop_service': '🛠️ 服务管理', 'list_services': '🛠️ 服务管理',
+        'system': '🖥️ 系统信息', 'get_system_info': '🖥️ 系统信息', 'get_uptime': '🖥️ 系统信息',
+        'process': '📊 进程管理', 'get_processes': '📊 进程管理', 'get_top_processes': '📊 进程管理', 'kill_process': '📊 进程管理',
+        'network': '🌐 网络管理', 'get_network': '🌐 网络管理', 'get_open_ports': '🌐 网络管理', 'check_port': '🌐 网络管理',
+        'disk': '💾 磁盘管理', 'get_disk': '💾 磁盘管理', 'get_disk_usage': '💾 磁盘管理', 'check_disk': '💾 磁盘管理',
+        'file': '📁 文件管理', 'read_file': '📁 文件管理', 'write_file': '📁 文件管理', 'list_files': '📁 文件管理',
+        'diagnose': '🔬 诊断工具', 'get_diagnose': '🔬 诊断工具', 'run_diagnose': '🔬 诊断工具',
+        'cron': '⏰ 定时任务', 'get_cron': '⏰ 定时任务', 'get_cron_jobs': '⏰ 定时任务',
+        'selinux': '🔒 安全策略', 'get_selinux': '🔒 安全策略', 'get_selinux_status': '🔒 安全策略',
+        'user': '👤 用户管理', 'get_user': '👤 用户管理', 'get_user_list': '👤 用户管理',
+    };
+    return cats[name] || '📦 其他工具';
+}
+
+function renderToolsGrid(tools) {
+    const grid = document.getElementById('toolsGrid');
+    if (!grid) return;
+
+    if (tools.length === 0) {
+        grid.innerHTML = '<p class="empty-state">无匹配工具</p>';
+        return;
+    }
+
+    grid.innerHTML = tools.map(tool => {
+        const props = (tool.inputSchema && tool.inputSchema.properties) || {};
+        const required = (tool.inputSchema && tool.inputSchema.required) || [];
+        const paramKeys = Object.keys(props);
+        const cat = getToolCategory(tool.name);
+
+        return `
+        <div class="tool-card" data-cat="${cat}">
+            <div class="tool-card-top">
+                <span class="tool-cat-badge">${cat}</span>
+            </div>
+            <h4>${escapeHtml(tool.name)}</h4>
+            <p class="tool-desc">${escapeHtml(tool.description)}</p>
+            <div class="tool-params-section">
+                <span class="tool-params-label">参数 (${paramKeys.length})</span>
+                <div class="tool-params-list">
+                    ${paramKeys.length === 0 ? '<span class="no-params">无参数</span>' :
+                      paramKeys.map(p => {
+                        const isReq = required.includes(p);
+                        const prop = props[p];
+                        const typeStr = prop.type || 'string';
+                        const defVal = prop.default !== undefined ? ' = ' + JSON.stringify(prop.default) : '';
+                        const enumStr = prop.enum ? ' [' + prop.enum.join('|') + ']' : '';
+                        return `<div class="tool-param ${isReq ? 'required' : 'optional'}">
+                            <span class="param-name">${escapeHtml(p)}</span>
+                            <span class="param-meta">${typeStr}${enumStr}${defVal}</span>
+                            ${isReq ? '<span class="param-required">必填</span>' : '<span class="param-optional">可选</span>'}
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function filterToolsByCategory(cat) {
+    const filter = document.getElementById('toolCategoryFilter');
+    if (filter) filter.value = cat;
+    const searchInput = document.getElementById('toolSearchInput');
+    const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    let tools = allToolsCache;
+    if (cat) tools = tools.filter(t => getToolCategory(t.name) === cat);
+    if (query) tools = tools.filter(t => t.name.toLowerCase().includes(query) || (t.description || '').toLowerCase().includes(query));
+    renderToolsGrid(tools);
+}
+
 // ===== 配置信息 =====
 async function loadConfig() {
     const content = document.getElementById('configContent');
-    
+    if (!content) return;
+
     try {
-        const data = await apiGet('/config');
-        
+        const [cfgRes, healthRes] = await Promise.all([
+            apiGet('/config'),
+            apiGet('/health')
+        ]);
+
+        const cfg = cfgRes;
+        const health = healthRes;
+
+        // 健康状态
+        const isHealthy = health.status === 'healthy';
+        const toolsCount = (health.components && health.components.mcp_tools && health.components.mcp_tools.tools_count) || '--';
+        const dbStatus = (health.components && health.components.database && health.components.database.status) || 'unknown';
+        const llmStatus = (health.components && health.components.llm && health.components.llm.status) || 'unknown';
+
+        const statusBadge = (s) => s === 'healthy' ? '✅ 正常' : s === 'degraded' ? '⚠️ 降级' : '❌ 异常';
+        const statusCls = (s) => s === 'healthy' ? 'healthy' : s === 'degraded' ? 'warning' : 'error';
+
         content.innerHTML = `
-            <div class="config-section">
-                <h3>Agent 信息</h3>
-                <div class="config-row">
-                    <span class="config-label">名称</span>
-                    <span class="config-value">${escapeHtml(data.agent.name || '')}</span>
+            <!-- 系统状态概览 -->
+            <div class="config-status-bar">
+                <div class="config-status-item ${statusCls(isHealthy ? 'healthy' : 'error')}">
+                    <span class="cs-icon">🟢</span>
+                    <div class="cs-body">
+                        <span class="cs-label">系统状态</span>
+                        <span class="cs-value">${isHealthy ? '运行中' : '异常'}</span>
+                    </div>
                 </div>
-                <div class="config-row">
-                    <span class="config-label">版本</span>
-                    <span class="config-value">${escapeHtml(data.agent.version || '')}</span>
+                <div class="config-status-item">
+                    <span class="cs-icon">🔧</span>
+                    <div class="cs-body">
+                        <span class="cs-label">已注册工具</span>
+                        <span class="cs-value">${toolsCount} 个</span>
+                    </div>
                 </div>
-                <div class="config-row">
-                    <span class="config-label">描述</span>
-                    <span class="config-value">${escapeHtml(data.agent.description || '')}</span>
+                <div class="config-status-item ${statusCls(dbStatus)}">
+                    <span class="cs-icon">🗄️</span>
+                    <div class="cs-body">
+                        <span class="cs-label">数据库</span>
+                        <span class="cs-value">${statusBadge(dbStatus)}</span>
+                    </div>
                 </div>
-            </div>
-            
-            <div class="config-section">
-                <h3>LLM 配置</h3>
-                <div class="config-row">
-                    <span class="config-label">提供商</span>
-                    <span class="config-value">${escapeHtml(data.llm.provider || '')}</span>
-                </div>
-                <div class="config-row">
-                    <span class="config-label">模型</span>
-                    <span class="config-value">${escapeHtml(data.llm.model || '')}</span>
-                </div>
-            </div>
-            
-            <div class="config-section">
-                <h3>安全配置</h3>
-                <div class="config-row">
-                    <span class="config-label">受限用户</span>
-                    <span class="config-value">${escapeHtml(data.security.restricted_user || '')}</span>
-                </div>
-                <div class="config-row">
-                    <span class="config-label">规则数量</span>
-                    <span class="config-value">${data.security.rule_count !== undefined ? data.security.rule_count : 'N/A'}</span>
+                <div class="config-status-item ${statusCls(llmStatus)}">
+                    <span class="cs-icon">🧠</span>
+                    <div class="cs-body">
+                        <span class="cs-label">LLM 服务</span>
+                        <span class="cs-value">${statusBadge(llmStatus)}</span>
+                    </div>
                 </div>
             </div>
-            
-            <div class="config-section">
-                <h3>审计配置</h3>
-                <div class="config-row">
-                    <span class="config-label">日志目录</span>
-                    <span class="config-value">${escapeHtml(data.audit.log_dir || '')}</span>
+
+            <!-- 配置卡片 -->
+            <div class="config-cards">
+                <div class="config-card">
+                    <div class="config-card-icon">🤖</div>
+                    <h3>Agent 信息</h3>
+                    <div class="config-rows">
+                        <div class="config-row">
+                            <span class="config-label">名称</span>
+                            <span class="config-value">${escapeHtml(cfg.agent.name || '--')}</span>
+                        </div>
+                        <div class="config-row">
+                            <span class="config-label">版本</span>
+                            <code class="config-code">${escapeHtml(cfg.agent.version || '--')}</code>
+                        </div>
+                        <div class="config-row">
+                            <span class="config-label">描述</span>
+                            <span class="config-value config-desc">${escapeHtml(cfg.agent.description || '--')}</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="config-row">
-                    <span class="config-label">保留天数</span>
-                    <span class="config-value">${data.audit.retention_days !== undefined ? data.audit.retention_days : 'N/A'}</span>
+
+                <div class="config-card">
+                    <div class="config-card-icon">🧠</div>
+                    <h3>LLM 配置</h3>
+                    <div class="config-rows">
+                        <div class="config-row">
+                            <span class="config-label">提供商</span>
+                            <span class="config-value">${escapeHtml(cfg.llm.provider || '--')}</span>
+                        </div>
+                        <div class="config-row">
+                            <span class="config-label">模型</span>
+                            <code class="config-code">${escapeHtml(cfg.llm.model || '--')}</code>
+                        </div>
+                        <div class="config-row">
+                            <span class="config-label">API 端点</span>
+                            <code class="config-code">${escapeHtml((health.components && health.components.llm && health.components.llm.api_base) || '--')}</code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="config-card">
+                    <div class="config-card-icon">🛡️</div>
+                    <h3>安全配置</h3>
+                    <div class="config-rows">
+                        <div class="config-row">
+                            <span class="config-label">受限用户</span>
+                            <code class="config-code">${escapeHtml(cfg.security.restricted_user || '--')}</code>
+                        </div>
+                        <div class="config-row">
+                            <span class="config-label">安全规则</span>
+                            <span class="config-value">${cfg.security.rule_count !== undefined ? cfg.security.rule_count + ' 条' : '--'}</span>
+                        </div>
+                        <div class="config-row">
+                            <span class="config-label">执行用户</span>
+                            <code class="config-code">${escapeHtml((health.components && health.components.security && health.components.security.current_user) || '--')}</code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="config-card">
+                    <div class="config-card-icon">📋</div>
+                    <h3>审计配置</h3>
+                    <div class="config-rows">
+                        <div class="config-row">
+                            <span class="config-label">日志目录</span>
+                            <code class="config-code">${escapeHtml(cfg.audit.log_dir || '--')}</code>
+                        </div>
+                        <div class="config-row">
+                            <span class="config-label">保留天数</span>
+                            <span class="config-value">${cfg.audit.retention_days !== undefined ? cfg.audit.retention_days + ' 天' : '--'}</span>
+                        </div>
+                        <div class="config-row">
+                            <span class="config-label">MCP 版本</span>
+                            <code class="config-code">${escapeHtml((health.components && health.components.mcp_tools && health.components.mcp_tools.protocol_version) || '--')}</code>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
     } catch (e) {
-        content.innerHTML = `<p class="empty-state">加载失败: ${e.message}</p>`;
+        content.innerHTML = `<p class="empty-state">加载失败: ${escapeHtml(e.message)}</p>`;
     }
 }
 
@@ -501,6 +836,9 @@ async function loadDashboard() {
         updateMetricCards(data);
         updateCpuMemChart(dashboardHistory);
         updateDiskChart(data.disk);
+        updateSysOverview(data);
+        updateMemoryDetail(data.memory);
+        updateDiskPartTable(data.disk);
         updateServiceChart(data.services);
         updateNetworkChart(dashboardHistory);
         updateProcessTable(data.processes);
@@ -524,39 +862,76 @@ function updateMetricCards(data) {
     const proc = data.processes || {};
     const svc = data.services || {};
     const sys = data.system || {};
-    
+
     const cpuEl = document.getElementById('cpuValue');
     if (cpuEl) {
         cpuEl.textContent = (cpu.usage_percent !== undefined ? cpu.usage_percent : '--') + '%';
         cpuEl.style.color = getUsageColor(cpu.usage_percent);
     }
-    
+
     const memEl = document.getElementById('memValue');
     if (memEl) {
         memEl.textContent = (mem.usage_percent !== undefined ? mem.usage_percent : '--') + '%';
         memEl.style.color = getUsageColor(mem.usage_percent);
     }
-    
+
     const diskEl = document.getElementById('diskValue');
     if (diskEl) {
         const maxDisk = disk.partitions && disk.partitions[0] ? disk.partitions[0].usage_percent : 0;
         diskEl.textContent = (maxDisk !== undefined ? maxDisk : '--') + '%';
         diskEl.style.color = getUsageColor(maxDisk);
     }
-    
+
     const procEl = document.getElementById('procValue');
     if (procEl) {
         procEl.textContent = proc.total !== undefined ? proc.total : '--';
     }
-    
+
     const svcEl = document.getElementById('svcValue');
     if (svcEl) {
         svcEl.textContent = svc.running !== undefined ? svc.running : '--';
     }
-    
+
     const uptimeEl = document.getElementById('uptimeValue');
     if (uptimeEl && sys.uptime_seconds) {
         uptimeEl.textContent = formatUptime(sys.uptime_seconds);
+    }
+
+    // 新增：系统负载
+    const loadEl = document.getElementById('loadValue');
+    if (loadEl) {
+        const loadAvg = cpu.load_avg ? cpu.load_avg[0] : undefined;
+        loadEl.textContent = loadAvg !== undefined ? loadAvg.toFixed(2) : '--';
+        if (cpu.cores && loadAvg !== undefined) {
+            loadEl.style.color = loadAvg > cpu.cores ? 'var(--danger)' : loadAvg > cpu.cores * 0.7 ? 'var(--warning)' : 'var(--text-primary)';
+        }
+    }
+
+    // 新增：僵尸进程
+    const zombieEl = document.getElementById('zombieValue');
+    if (zombieEl) {
+        const zombie = proc.zombie !== undefined ? proc.zombie : undefined;
+        zombieEl.textContent = zombie !== undefined ? zombie : '--';
+        zombieEl.style.color = zombie > 0 ? 'var(--danger)' : 'var(--success)';
+    }
+
+    // 新增：交换分区
+    const swapEl = document.getElementById('swapValue');
+    if (swapEl) {
+        const swapPct = mem.swap_usage_percent !== undefined ? mem.swap_usage_percent : undefined;
+        swapEl.textContent = swapPct !== undefined ? swapPct + '%' : '--';
+        swapEl.style.color = getUsageColor(swapPct);
+    }
+
+    // 新增：磁盘总量
+    const diskSizeEl = document.getElementById('diskSizeValue');
+    if (diskSizeEl) {
+        const partitions = disk.partitions || [];
+        const totalGB = partitions.reduce((s, p) => {
+            const num = parseFloat(p.size);
+            return s + (isNaN(num) ? 0 : num);
+        }, 0);
+        diskSizeEl.textContent = totalGB > 0 ? (totalGB >= 1000 ? (totalGB / 1024).toFixed(1) + 'T' : totalGB.toFixed(0) + 'G') : '--';
     }
 }
 
@@ -578,14 +953,16 @@ function formatUptime(seconds) {
 
 function updateCpuMemChart(history) {
     if (!cpuMemChart || typeof echarts === 'undefined') return;
-    
+
+    cpuMemChart.clear();
+
     const timestamps = history.map(h => {
         const d = new Date(h.timestamp * 1000);
-        return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0') + ':' + d.getSeconds().toString().padStart(2, '0');
+        return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
     });
     const cpuData = history.map(h => h.cpu ? h.cpu.usage_percent : 0);
     const memData = history.map(h => h.memory ? h.memory.usage_percent : 0);
-    
+
     const option = {
         backgroundColor: 'transparent',
         tooltip: {
@@ -597,14 +974,14 @@ function updateCpuMemChart(history) {
         legend: {
             data: ['CPU', '内存'],
             textStyle: { color: '#64748b' },
-            bottom: 0
+            top: 0
         },
-        grid: { left: '10%', right: '5%', top: '10%', bottom: '20%' },
+        grid: { left: '8%', right: '5%', top: '12%', bottom: '8%' },
         xAxis: {
             type: 'category',
             data: timestamps,
             axisLine: { lineStyle: { color: '#e2e8f0' } },
-            axisLabel: { color: '#64748b', fontSize: 10 }
+            axisLabel: { color: '#64748b', fontSize: 10, interval: Math.max(0, Math.floor(timestamps.length / 6) - 1) }
         },
         yAxis: {
             type: 'value',
@@ -641,27 +1018,67 @@ function updateCpuMemChart(history) {
 
 function updateDiskChart(diskData) {
     if (!diskChart || typeof echarts === 'undefined') return;
-    
+
+    diskChart.clear();
+
     const partitions = (diskData && diskData.partitions) ? diskData.partitions : [];
-    const data = partitions.map(p => ({
+
+    // 携带完整信息
+    const data = partitions.length > 0 ? partitions.map(p => ({
         name: p.mount,
-        value: p.usage_percent
-    }));
-    
+        value: p.usage_percent || 0,
+        size: p.size || '--',
+        used: p.used || '--',
+        available: p.available || '--',
+        device: p.device || '--'
+    })) : [];
+
+    const colors = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
+
+    // 汇总信息
+    const totalSize = partitions.reduce((s, p) => { const n = parseFloat(p.size); return s + (isNaN(n) ? 0 : n); }, 0);
+    const totalUsed = partitions.reduce((s, p) => { const n = parseFloat(p.used); return s + (isNaN(n) ? 0 : n); }, 0);
+    const totalPct = totalSize > 0 ? Math.round(totalUsed / totalSize * 100) : 0;
+
     const option = {
         backgroundColor: 'transparent',
+        graphic: partitions.length > 0 ? [
+            { type: 'text', left: 'center', top: '43%', style: { text: partitions.length + ' 个分区', textAlign: 'center', fill: '#94a3b8', fontSize: 13, fontWeight: 'bold' } },
+            { type: 'text', left: 'center', top: '54%', style: { text: totalPct + '%', textAlign: 'center', fill: totalPct >= 90 ? '#dc2626' : totalPct >= 70 ? '#f59e0b' : '#16a34a', fontSize: 24, fontWeight: 'bold' } },
+            { type: 'text', left: 'center', top: '65%', style: { text: '磁盘使用率', textAlign: 'center', fill: '#94a3b8', fontSize: 11 } }
+        ] : [],
         tooltip: {
             trigger: 'item',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderColor: '#e2e8f0',
-            textStyle: { color: '#1e293b' },
-            formatter: '{b}: {c}%'
+            backgroundColor: 'rgba(30, 41, 59, 0.97)',
+            borderColor: '#475569',
+            textStyle: { color: '#f1f5f9', fontSize: 13 },
+            formatter: function(p) {
+                const d = p.data;
+                return `<b>${d.name}</b> (${d.device})<br/>
+                    容量: <b>${d.size}</b><br/>
+                    已用: <b>${d.used}</b> / 可用: <b>${d.available}</b><br/>
+                    使用率: <b style="color:${p.color};">${d.value}%</b>`;
+            }
+        },
+        legend: {
+            orient: 'horizontal',
+            left: 'center',
+            top: -5,
+            textStyle: { color: '#94a3b8', fontSize: 11 },
+            itemWidth: 8,
+            itemHeight: 8,
+            itemGap: 16,
+            formatter: function(name) {
+                const p = partitions.find(x => x.mount === name);
+                if (p) return name + ' ' + p.value + '%';
+                return name;
+            }
         },
         series: [
             {
                 type: 'pie',
-                radius: ['40%', '70%'],
-                center: ['50%', '50%'],
+                radius: ['50%', '78%'],
+                center: ['50%', '57%'],
                 avoidLabelOverlap: true,
                 itemStyle: {
                     borderRadius: 6,
@@ -670,12 +1087,27 @@ function updateDiskChart(diskData) {
                 },
                 label: {
                     show: true,
-                    color: '#94a3b8',
-                    formatter: '{b}\n{c}%'
+                    position: 'outside',
+                    color: '#cbd5e1',
+                    fontSize: 11,
+                    formatter: function(p) {
+                        return p.data.used + ' (' + p.value + '%)';
+                    }
                 },
-                labelLine: { lineStyle: { color: '#334155' } },
-                data: data.length > 0 ? data : [{name: '无数据', value: 0}],
-                color: ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#8b5cf6', '#06b6d4']
+                labelLine: {
+                    show: true,
+                    lineStyle: { color: '#475569' },
+                    length: 22,
+                    length2: 16
+                },
+                emphasis: {
+                    label: { fontSize: 14, fontWeight: 'bold' },
+                    scaleSize: 8
+                },
+                data: data.length > 0 ? data : [{name: '等待数据...', value: 1, size: '', used: '', available: '', device: ''}],
+                color: data.length > 0
+                    ? data.map((_, i) => colors[i % colors.length])
+                    : ['#334155']
             }
         ]
     };
@@ -684,31 +1116,45 @@ function updateDiskChart(diskData) {
 
 function updateServiceChart(services) {
     if (!serviceChart || typeof echarts === 'undefined') return;
-    
+
+    serviceChart.clear();
+
     const running = services && services.running !== undefined ? services.running : 0;
     const failed = services && services.failed !== undefined ? services.failed : 0;
     const total = services && services.total !== undefined ? services.total : 0;
     const other = Math.max(0, total - running - failed);
-    
+
+    const data = [
+        { name: '运行中', value: running, itemStyle: { color: '#16a34a' } },
+        { name: '失败', value: failed, itemStyle: { color: '#dc2626' } },
+        { name: '其他', value: other, itemStyle: { color: '#64748b' } }
+    ].filter(d => d.value > 0);
+
     const option = {
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'item',
             backgroundColor: 'rgba(255, 255, 255, 0.95)',
             borderColor: '#e2e8f0',
-            textStyle: { color: '#1e293b' }
+            textStyle: { color: '#1e293b' },
+            formatter: function(p) {
+                return p.name + ': ' + p.value + ' 个服务';
+            }
         },
         legend: {
             orient: 'vertical',
-            right: '5%',
+            right: '3%',
             top: 'center',
-            textStyle: { color: '#94a3b8' }
+            textStyle: { color: '#94a3b8', fontSize: 11 },
+            itemWidth: 10,
+            itemHeight: 10,
+            itemGap: 10
         },
         series: [
             {
                 type: 'pie',
-                radius: ['40%', '65%'],
-                center: ['35%', '50%'],
+                radius: ['45%', '78%'],
+                center: ['42%', '50%'],
                 avoidLabelOverlap: true,
                 itemStyle: {
                     borderRadius: 6,
@@ -717,18 +1163,79 @@ function updateServiceChart(services) {
                 },
                 label: {
                     show: true,
+                    position: 'outside',
                     color: '#94a3b8',
-                    formatter: '{c}'
+                    fontSize: 11,
+                    formatter: '{b} {c} 个'
                 },
-                data: [
-                    { name: '运行中', value: running, itemStyle: { color: '#16a34a' } },
-                    { name: '失败', value: failed, itemStyle: { color: '#dc2626' } },
-                    { name: '其他', value: other, itemStyle: { color: '#64748b' } }
-                ].filter(d => d.value > 0)
+                labelLine: {
+                    show: true,
+                    lineStyle: { color: '#334155' },
+                    length: 20,
+                    length2: 15
+                },
+                emphasis: {
+                    label: { fontSize: 14, fontWeight: 'bold' },
+                    scaleSize: 8
+                },
+                data: data.length > 0 ? data : [{name: '等待数据...', value: 1, itemStyle: { color: '#334155' }}]
             }
         ]
     };
     serviceChart.setOption(option);
+
+    // 更新右侧服务详情面板
+    updateServiceDetailPanel(services, running, failed, total, other);
+}
+
+function updateServiceDetailPanel(services, running, failed, total, other) {
+    // 统计摘要
+    const summaryEl = document.getElementById('serviceSummaryStats');
+    if (summaryEl) {
+        const runningPct = total > 0 ? Math.round(running / total * 100) : 0;
+        const failedPct = total > 0 ? Math.round(failed / total * 100) : 0;
+        summaryEl.innerHTML = `
+            <div class="svc-stat-item">
+                <span class="svc-stat-num" style="color:#16a34a">${running}</span>
+                <span class="svc-stat-desc">运行中 (${runningPct}%)</span>
+            </div>
+            <div class="svc-stat-item">
+                <span class="svc-stat-num" style="color:#dc2626">${failed}</span>
+                <span class="svc-stat-desc">失败 (${failedPct}%)</span>
+            </div>
+            <div class="svc-stat-item">
+                <span class="svc-stat-num" style="color:#64748b">${other}</span>
+                <span class="svc-stat-desc">其他 / 已停止</span>
+            </div>
+            <div class="svc-stat-item">
+                <span class="svc-stat-num">${total}</span>
+                <span class="svc-stat-desc">服务总数</span>
+            </div>
+        `;
+    }
+
+    // 失败服务列表
+    const failedSection = document.getElementById('serviceFailedSection');
+    const failedList = document.getElementById('serviceFailedList');
+    if (failedSection && failedList) {
+        const failedItems = (services && services.failed_list) ? services.failed_list : [];
+        if (failedItems.length > 0) {
+            failedSection.style.display = '';
+            failedList.innerHTML = failedItems.map(name => `
+                <div class="failed-service-item">
+                    <span class="failed-dot"></span>
+                    <span class="failed-name">${escapeHtml(name)}</span>
+                </div>
+            `).join('');
+        } else {
+            failedSection.style.display = failed > 0 ? '' : 'none';
+            if (failed > 0 && failedItems.length === 0) {
+                failedList.innerHTML = '<div class="failed-service-item"><span class="failed-dot"></span><span class="failed-name">存在失败服务，但未能获取详情</span></div>';
+            } else {
+                failedList.innerHTML = '<div class="failed-service-empty">✅ 当前无失败服务</div>';
+            }
+        }
+    }
 }
 
 function updateProcessTable(processes) {
@@ -755,26 +1262,52 @@ function updateProcessTable(processes) {
 function updateNetworkCards(network) {
     const container = document.getElementById('networkCards');
     if (!container) return;
-    
+
     const interfaces = (network && network.interfaces) ? network.interfaces : [];
     if (interfaces.length === 0) {
-        container.innerHTML = '<p style="color:var(--text-secondary)">暂无网络接口数据</p>';
+        container.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:20px;">暂无网络接口数据</p>';
         return;
     }
-    
-    container.innerHTML = interfaces.map(iface => `
-        <div class="network-card">
+
+    container.innerHTML = interfaces.map(iface => {
+        const isUp = iface.status === 'up';
+        const rxRate = iface.rx_rate_kb !== undefined ? iface.rx_rate_kb : 0;
+        const txRate = iface.tx_rate_kb !== undefined ? iface.tx_rate_kb : 0;
+        return `
+        <div class="network-card ${isUp ? 'iface-up' : 'iface-down'}">
             <div class="network-card-header">
-                <span class="network-name">${escapeHtml(iface.name)}</span>
-                <span class="network-status ${iface.status === 'up' ? 'up' : 'down'}">${iface.status === 'up' ? '● 已连接' : '○ 断开'}</span>
+                <div class="network-icon">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <ellipse cx="12" cy="12" rx="10" ry="8"/>
+                        <line x1="2" y1="12" x2="22" y2="12"/>
+                        <path d="M12 4c2 2.5 3 5 3 8s-1 5.5-3 8c-2-2.5-3-5-3-8s1-5.5 3-8z"/>
+                    </svg>
+                </div>
+                <div class="network-info-top">
+                    <span class="network-name">${escapeHtml(iface.name)}</span>
+                    <span class="network-status ${isUp ? 'up' : 'down'}">${isUp ? '● 已连接' : '○ 断开'}</span>
+                </div>
             </div>
             <div class="network-card-body">
-                <div><span>IP:</span> <code>${escapeHtml(iface.ip || 'N/A')}</code></div>
-                <div><span>RX:</span> ${formatBytes(iface.rx_bytes || 0)}</div>
-                <div><span>TX:</span> ${formatBytes(iface.tx_bytes || 0)}</div>
+                <div class="net-row">
+                    <span class="net-label">IP 地址</span>
+                    <code>${escapeHtml(iface.ip || 'N/A')}</code>
+                </div>
+                <div class="net-row net-stats">
+                    <div class="net-stat">
+                        <span class="net-stat-label">↓ 接收</span>
+                        <span class="net-stat-val">${formatBytes(iface.rx_bytes || 0)}</span>
+                        ${rxRate > 0 ? `<span class="net-rate">${rxRate.toFixed(1)} KB/s</span>` : ''}
+                    </div>
+                    <div class="net-stat">
+                        <span class="net-stat-label">↑ 发送</span>
+                        <span class="net-stat-val">${formatBytes(iface.tx_bytes || 0)}</span>
+                        ${txRate > 0 ? `<span class="net-rate">${txRate.toFixed(1)} KB/s</span>` : ''}
+                    </div>
+                </div>
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 function updateSystemInfo(sys) {
@@ -782,7 +1315,162 @@ function updateSystemInfo(sys) {
     // 已在 metric cards 中展示 uptime
 }
 
+function updateDiskPartTable(diskData) {
+    const tbody = document.querySelector('#diskPartTable tbody');
+    if (!tbody) return;
 
+    const partitions = (diskData && diskData.partitions) ? diskData.partitions : [];
+    if (partitions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);">暂无数据</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = partitions.map(p => {
+        const usageCls = p.usage_percent >= 90 ? 'danger' : p.usage_percent >= 70 ? 'warning' : 'success';
+        return `
+        <tr>
+            <td><code>${escapeHtml(p.mount)}</code></td>
+            <td class="disk-dev">${escapeHtml(p.device)}</td>
+            <td>${escapeHtml(p.size || '--')}</td>
+            <td>${escapeHtml(p.used || '--')} / ${escapeHtml(p.available || '--')}</td>
+            <td>
+                <div class="disk-usage-cell">
+                    <div class="disk-mini-bar">
+                        <div class="disk-mini-fill ${usageCls}" style="width:${Math.min(p.usage_percent, 100)}%;"></div>
+                    </div>
+                    <span class="disk-usage-pct ${usageCls}">${p.usage_percent}%</span>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function updateSysOverview(data) {
+    const el = document.getElementById('sysOverview');
+    if (!el) return;
+
+    const cpu = data.cpu || {};
+    const mem = data.memory || {};
+    const sys = data.system || {};
+
+    const hostname = sys.hostname || '--';
+    const kernel = sys.kernel || '--';
+    const arch = sys.arch || '--';
+    const uptime = sys.uptime_seconds ? formatUptime(sys.uptime_seconds) : '--';
+    const load1 = cpu.load_avg ? cpu.load_avg[0].toFixed(2) : '--';
+    const load5 = cpu.load_avg ? cpu.load_avg[1].toFixed(2) : '--';
+    const load15 = cpu.load_avg ? cpu.load_avg[2].toFixed(2) : '--';
+    const cpuModel = cpu.model || '--';
+    const cores = cpu.cores || '--';
+    const memUsed = mem.used_gb !== undefined ? mem.used_gb + ' GB' : '--';
+    const memTotal = mem.total_gb !== undefined ? mem.total_gb + ' GB' : '--';
+    const swapUsed = mem.swap_used_gb !== undefined ? mem.swap_used_gb + ' GB' : '--';
+    const swapTotal = mem.swap_total_gb !== undefined ? mem.swap_total_gb + ' GB' : '--';
+
+    el.innerHTML = `
+        <div class="sys-item">
+            <span class="sys-label">主机名</span>
+            <span class="sys-value">${escapeHtml(hostname)}</span>
+        </div>
+        <div class="sys-item">
+            <span class="sys-label">内核版本</span>
+            <span class="sys-value sys-mono">${escapeHtml(kernel)}</span>
+        </div>
+        <div class="sys-item">
+            <span class="sys-label">系统架构</span>
+            <span class="sys-value sys-mono">${escapeHtml(arch)}</span>
+        </div>
+        <div class="sys-item">
+            <span class="sys-label">运行时间</span>
+            <span class="sys-value">${escapeHtml(uptime)}</span>
+        </div>
+        <div class="sys-item">
+            <span class="sys-label">CPU 型号</span>
+            <span class="sys-value sys-mono" title="${escapeHtml(cpuModel)}">${escapeHtml(cpuModel.length > 35 ? cpuModel.substring(0, 35) + '...' : cpuModel)}</span>
+        </div>
+        <div class="sys-item">
+            <span class="sys-label">CPU 核心</span>
+            <span class="sys-value">${cores}</span>
+        </div>
+        <div class="sys-item">
+            <span class="sys-label">负载 1m / 5m / 15m</span>
+            <span class="sys-value">${load1} / ${load5} / ${load15}</span>
+        </div>
+        <div class="sys-item">
+            <span class="sys-label">内存 已用 / 总量</span>
+            <span class="sys-value">${memUsed} / ${memTotal}</span>
+        </div>
+        <div class="sys-item">
+            <span class="sys-label">交换分区 已用 / 总量</span>
+            <span class="sys-value">${swapUsed} / ${swapTotal}</span>
+        </div>
+    `;
+}
+
+function updateMemoryDetail(mem) {
+    const el = document.getElementById('memoryDetail');
+    if (!el) return;
+
+    if (!mem) {
+        el.innerHTML = '<p style="color:var(--text-secondary);text-align:center;">暂无数据</p>';
+        return;
+    }
+
+    const used = mem.used_gb || 0;
+    const buffers = (mem.buffers_mb || 0) / 1024;
+    const cached = (mem.cached_mb || 0) / 1024;
+    const free = mem.free_gb || 0;
+    const total = mem.total_gb || 1;
+    const available = free + buffers + cached;
+
+    const usedPct = Math.round(used / total * 100);
+    const bufPct = Math.round(buffers / total * 100);
+    const cachePct = Math.round(cached / total * 100);
+    const freePct = Math.max(0, 100 - usedPct - bufPct - cachePct);
+    const swapPct = mem.swap_usage_percent || 0;
+    const hasSwap = (mem.swap_total_gb || 0) > 0;
+
+    el.innerHTML = `
+        <div class="mem-section">
+            <div class="mem-section-title">物理内存</div>
+            <div class="mem-bar-wrapper">
+                <div class="mem-bar mem-bar-lg">
+                    <div class="mem-bar-seg mem-used" style="width:${Math.max(usedPct, 1)}%"></div>
+                    <div class="mem-bar-seg mem-buffers" style="width:${Math.max(bufPct, 1)}%"></div>
+                    <div class="mem-bar-seg mem-cached" style="width:${Math.max(cachePct, 1)}%"></div>
+                    <div class="mem-bar-seg mem-free" style="width:${Math.max(freePct, 1)}%"></div>
+                </div>
+            </div>
+            <div class="mem-legend">
+                <div class="mem-legend-item"><span class="mem-dot mem-used"></span> 已用 <b>${used.toFixed(1)}</b> GB</div>
+                <div class="mem-legend-item"><span class="mem-dot mem-buffers"></span> 缓冲 <b>${buffers.toFixed(1)}</b> GB</div>
+                <div class="mem-legend-item"><span class="mem-dot mem-cached"></span> 缓存 <b>${cached.toFixed(1)}</b> GB</div>
+                <div class="mem-legend-item"><span class="mem-dot mem-free"></span> 空闲 <b>${free.toFixed(1)}</b> GB</div>
+            </div>
+            <div class="mem-summary-row">
+                <span>总量 <b>${total.toFixed(1)}</b> GB</span>
+                <span class="mem-avail">可用 <b style="color:#16a34a;">${available.toFixed(1)}</b> GB</span>
+                <span>使用率 <b style="color:${getUsageColor(mem.usage_percent)};">${(mem.usage_percent || 0).toFixed(1)}%</b></span>
+            </div>
+        </div>
+        <div class="mem-section">
+            <div class="mem-section-title">交换分区 ${hasSwap ? '<span style="color:#8b5cf6;font-weight:400;">' + swapPct.toFixed(1) + '%</span>' : ''}</div>
+            ${hasSwap ? `
+                <div class="mem-bar-wrapper">
+                    <div class="mem-bar mem-bar-md">
+                        <div class="mem-bar-seg mem-swap-used" style="width:${Math.max(swapPct, 1)}%"></div>
+                        <div class="mem-bar-seg mem-swap-free" style="width:${Math.max(100 - swapPct, 1)}%"></div>
+                    </div>
+                </div>
+                <div class="mem-swap-stats">
+                    <span>已用 <b>${(mem.swap_used_gb || 0).toFixed(1)}</b> GB</span>
+                    <span>总量 <b>${(mem.swap_total_gb || 0).toFixed(1)}</b> GB</span>
+                    <span>可用 <b>${((mem.swap_total_gb || 0) - (mem.swap_used_gb || 0)).toFixed(1)}</b> GB</span>
+                </div>
+            ` : '<div class="mem-swap-off">未启用交换分区</div>'}
+        </div>
+    `;
+}
 
 // ===== 审计日志统计 =====
 let auditStatusChart = null;
@@ -790,20 +1478,23 @@ let auditTrendChart = null;
 let auditToolsChart = null;
 let auditRiskChart = null;
 let auditBlockedChart = null;
+let auditUsersChart = null;
+let auditNodeTypeChart = null;
 
 function initAuditStatsCharts() {
     if (typeof echarts === 'undefined') return;
-    const els = ['auditStatusChart', 'auditTrendChart', 'auditToolsChart', 'auditRiskChart', 'auditBlockedChart'];
-    els.forEach(id => {
+    const chartMap = {
+        'auditStatusChart': v => auditStatusChart = v,
+        'auditTrendChart': v => auditTrendChart = v,
+        'auditToolsChart': v => auditToolsChart = v,
+        'auditRiskChart': v => auditRiskChart = v,
+        'auditBlockedChart': v => auditBlockedChart = v,
+        'auditUsersChart': v => auditUsersChart = v,
+        'auditNodeTypeChart': v => auditNodeTypeChart = v,
+    };
+    Object.keys(chartMap).forEach(id => {
         const el = document.getElementById(id);
-        if (el) {
-            const chart = echarts.init(el);
-            if (id === 'auditStatusChart') auditStatusChart = chart;
-            if (id === 'auditTrendChart') auditTrendChart = chart;
-            if (id === 'auditToolsChart') auditToolsChart = chart;
-            if (id === 'auditRiskChart') auditRiskChart = chart;
-            if (id === 'auditBlockedChart') auditBlockedChart = chart;
-        }
+        if (el) chartMap[id](echarts.init(el));
     });
 }
 
@@ -821,10 +1512,12 @@ async function loadAuditStats() {
         const stats = data.data;
         updateAuditSummary(stats);
         updateAuditStatusChart(stats.status_distribution);
-        updateAuditTrendChart(stats.daily_trend);
+        updateAuditTrendChart(stats.daily_trend, stats.hourly_trend);
         updateAuditToolsChart(stats.top_tools);
         updateAuditRiskChart(stats.risk_distribution);
         updateAuditBlockedChart(stats.blocked_reasons);
+        updateAuditUsersChart(stats.top_users);
+        updateAuditNodeTypeChart(stats.node_type_distribution);
     } catch (e) {
         console.error('审计统计加载失败:', e);
     }
@@ -835,7 +1528,9 @@ function updateAuditSummary(stats) {
     const blockedEl = document.getElementById('statBlocked');
     const blockRateEl = document.getElementById('statBlockRate');
     const avgDurationEl = document.getElementById('statAvgDuration');
-    
+    const maxDurationEl = document.getElementById('statMaxDuration');
+    const activeUsersEl = document.getElementById('statActiveUsers');
+
     if (totalEl) totalEl.textContent = stats.total || 0;
     if (blockedEl) blockedEl.textContent = stats.blocked_count || 0;
     if (blockRateEl) blockRateEl.textContent = (stats.block_rate || 0) + '%';
@@ -843,26 +1538,58 @@ function updateAuditSummary(stats) {
         const avg = stats.duration_stats && stats.duration_stats.avg_sec;
         avgDurationEl.textContent = avg !== undefined ? avg + 's' : '--';
     }
+    if (maxDurationEl) {
+        const max = stats.duration_stats && stats.duration_stats.max_sec;
+        maxDurationEl.textContent = max !== undefined ? max + 's' : '--';
+    }
+    if (activeUsersEl) {
+        const users = stats.top_users || {};
+        activeUsersEl.textContent = Object.keys(users).length || '--';
+    }
 }
 
 function updateAuditStatusChart(statusDist) {
     if (!auditStatusChart || typeof echarts === 'undefined') return;
-    const data = Object.entries(statusDist || {}).map(([name, value]) => ({ name, value }));
-    const colorMap = {
-        'completed': '#16a34a',
-        'blocked': '#dc2626',
-        'failed': '#f59e0b',
-        'running': '#2563eb',
-        'pending': '#8b5cf6'
+    auditStatusChart.clear();
+
+    const statusLabelMap = {
+        'completed': '已完成',
+        'blocked': '已拦截',
+        'failed': '失败',
+        'running': '运行中',
+        'pending': '等待中'
     };
-    
+    const statusDescMap = {
+        'completed': '操作通过安全校验并成功执行',
+        'blocked': '被安全护栏拦截，未执行',
+        'failed': '执行过程中出现错误',
+        'running': '当前正在执行中',
+        'pending': '等待用户确认或审批'
+    };
+
+    const rawData = Object.entries(statusDist || {}).map(([name, value]) => ({
+        name: statusLabelMap[name] || name,
+        rawName: name,
+        value: value
+    }));
+    const total = rawData.reduce((sum, d) => sum + d.value, 0);
+
     auditStatusChart.setOption({
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'item',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderColor: '#e2e8f0',
-            textStyle: { color: '#1e293b' }
+            backgroundColor: 'rgba(30, 41, 59, 0.97)',
+            borderColor: '#475569',
+            textStyle: { color: '#f1f5f9', fontSize: 13 },
+            formatter: function(p) {
+                const pct = total > 0 ? (p.value / total * 100).toFixed(1) : 0;
+                const rawName = p.data?.rawName || '';
+                const desc = statusDescMap[rawName] || '';
+                return `<b>${p.name}</b><br/>
+                    数量: <b>${p.value}</b> 条<br/>
+                    占比: <b>${pct}%</b><br/>
+                    <span style="color:#94a3b8;font-size:11px;">${desc}</span>`;
+            }
         },
         series: [{
             type: 'pie',
@@ -870,146 +1597,810 @@ function updateAuditStatusChart(statusDist) {
             center: ['50%', '50%'],
             avoidLabelOverlap: true,
             itemStyle: { borderRadius: 6, borderColor: '#1e293b', borderWidth: 2 },
-            label: { show: true, color: '#94a3b8', formatter: '{b}\n{c}' },
-            labelLine: { lineStyle: { color: '#334155' } },
-            data: data.length > 0 ? data : [{ name: '无数据', value: 0 }],
-            color: data.map(d => colorMap[d.name] || '#64748b')
+            label: {
+                show: true,
+                color: '#94a3b8',
+                fontSize: 12,
+                formatter: function(p) {
+                    const pct = total > 0 ? (p.value / total * 100).toFixed(1) : 0;
+                    return p.name + '\n' + pct + '%';
+                }
+            },
+            labelLine: { show: true, lineStyle: { color: '#334155' }, length: 15, length2: 12 },
+            emphasis: {
+                label: { fontSize: 16, fontWeight: 'bold' },
+                scaleSize: 10
+            },
+            data: rawData.length > 0 ? rawData : [{ name: '无数据', value: 0, rawName: '' }],
+            color: rawData.map(d => {
+                const cmap = { 'completed': '#16a34a', 'blocked': '#dc2626', 'failed': '#f59e0b', 'running': '#2563eb', 'pending': '#8b5cf6' };
+                return cmap[d.rawName] || '#64748b';
+            })
         }]
+    });
+
+    // 点击扇区弹出注释
+    auditStatusChart.off('click');
+    auditStatusChart.on('click', function(params) {
+        if (!params.data || !params.data.rawName) return;
+        const desc = statusDescMap[params.data.rawName] || '暂无说明';
+        alert(params.data.name + '：' + desc + '\n\n数量: ' + params.data.value + ' 条');
     });
 }
 
-function updateAuditTrendChart(dailyTrend) {
+function updateAuditTrendChart(dailyTrend, hourlyTrend) {
     if (!auditTrendChart || typeof echarts === 'undefined') return;
+    auditTrendChart.clear();
+
     const dates = Object.keys(dailyTrend || {});
     const values = Object.values(dailyTrend || {});
-    
+    const total = values.reduce((s, v) => s + v, 0);
+    const avg = values.length > 0 ? (total / values.length) : 0;
+    const maxVal = values.length > 0 ? Math.max(...values) : 0;
+    const minVal = values.length > 0 ? Math.min(...values.filter(v => v > 0)) : 0;
+    const maxIdx = values.indexOf(maxVal);
+    const minIdx = values.lastIndexOf(minVal);
+
+    // 3日移动平均（平滑趋势线）
+    const movingAvg = values.map((_, i) => {
+        const start = Math.max(0, i - 1);
+        const end = Math.min(values.length, i + 2);
+        const slice = values.slice(start, end);
+        return +(slice.reduce((a, b) => a + b, 0) / slice.length).toFixed(1);
+    });
+
     auditTrendChart.setOption({
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'axis',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderColor: '#e2e8f0',
-            textStyle: { color: '#1e293b' }
+            backgroundColor: 'rgba(30, 41, 59, 0.97)',
+            borderColor: '#475569',
+            textStyle: { color: '#f1f5f9', fontSize: 13 },
+            formatter: function(params) {
+                const bar = params.find(p => p.seriesName === '日操作量');
+                const line = params.find(p => p.seriesName === '趋势 (3日均)');
+                let html = `<b>${params[0].axisValue}</b><br/>`;
+                if (bar) {
+                    const diff = avg > 0 ? ((bar.value - avg) / avg * 100).toFixed(1) : 0;
+                    const arrow = diff >= 0 ? '↑' : '↓';
+                    const color = diff >= 0 ? '#16a34a' : '#dc2626';
+                    html += `操作量: <b>${bar.value}</b> 条<br/>
+                        较均值: <span style="color:${color}">${arrow} ${Math.abs(diff)}%</span><br/>`;
+                }
+                if (line) html += `3日均值: <b>${line.value}</b> 条`;
+                return html;
+            }
         },
-        grid: { left: '12%', right: '5%', top: '10%', bottom: '15%' },
+        legend: {
+            data: ['日操作量', '趋势 (3日均)', '日均值'],
+            bottom: 5,
+            textStyle: { color: '#94a3b8', fontSize: 11 },
+            itemWidth: 14, itemHeight: 8, itemGap: 16
+        },
+        grid: { left: '8%', right: '5%', top: '8%', bottom: '20%' },
         xAxis: {
             type: 'category',
             data: dates,
-            axisLine: { lineStyle: { color: '#e2e8f0' } },
-            axisLabel: { color: '#64748b', fontSize: 10 }
+            axisLine: { lineStyle: { color: '#334155' } },
+            axisLabel: { color: '#94a3b8', fontSize: 10, rotate: 30, interval: Math.max(0, Math.floor(dates.length / 10) - 1) },
+            axisTick: { show: false }
         },
         yAxis: {
             type: 'value',
-            axisLine: { lineStyle: { color: '#e2e8f0' } },
-            splitLine: { lineStyle: { color: '#e2e8f0' } },
-            axisLabel: { color: '#64748b' }
+            minInterval: 1,
+            axisLine: { show: false },
+            splitLine: { lineStyle: { color: '#1e293b' } },
+            axisLabel: { color: '#94a3b8', fontSize: 11 }
         },
-        series: [{
-            type: 'bar',
-            data: values,
-            itemStyle: { color: '#2563eb', borderRadius: [4, 4, 0, 0] },
-            barWidth: '60%'
-        }]
+        series: [
+            {
+                name: '日操作量',
+                type: 'bar',
+                data: values,
+                barWidth: '55%',
+                itemStyle: {
+                    borderRadius: [5, 5, 0, 0],
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: '#6366f1' },
+                        { offset: 0.5, color: '#4f46e5' },
+                        { offset: 1, color: 'rgba(99, 102, 241, 0.25)' }
+                    ])
+                },
+                emphasis: {
+                    itemStyle: { color: '#818cf8' },
+                    label: { show: true, position: 'top', color: '#e2e8f0', fontSize: 12, fontWeight: 'bold', formatter: '{c}' }
+                },
+                markPoint: {
+                    silent: true,
+                    data: [
+                        { type: 'max', name: '最高', symbol: 'pin', symbolSize: 36,
+                          itemStyle: { color: '#f59e0b' },
+                          label: { color: '#fff', fontSize: 10, formatter: '{c}' } },
+                        { type: 'min', name: '最低', symbol: 'pin', symbolSize: 30,
+                          itemStyle: { color: '#06b6d4' },
+                          label: { color: '#fff', fontSize: 10, formatter: '{c}' } }
+                    ]
+                }
+            },
+            {
+                name: '趋势 (3日均)',
+                type: 'line',
+                data: movingAvg,
+                smooth: true,
+                symbol: 'circle',
+                symbolSize: 4,
+                lineStyle: { color: '#f59e0b', width: 2.5, type: 'solid' },
+                itemStyle: { color: '#f59e0b', borderColor: '#1e293b', borderWidth: 2 },
+                areaStyle: {
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: 'rgba(245, 158, 11, 0.15)' },
+                        { offset: 1, color: 'rgba(245, 158, 11, 0.01)' }
+                    ])
+                },
+                z: 10
+            },
+            {
+                name: '日均值',
+                type: 'line',
+                data: new Array(values.length).fill(avg),
+                symbol: 'none',
+                lineStyle: { color: '#64748b', width: 1.5, type: 'dashed' },
+                label: {
+                    show: true,
+                    position: 'end',
+                    color: '#64748b',
+                    fontSize: 10,
+                    formatter: '均值 {c}'
+                },
+                z: 5
+            }
+        ]
     });
 }
 
 function updateAuditToolsChart(topTools) {
     if (!auditToolsChart || typeof echarts === 'undefined') return;
+    auditToolsChart.clear();
+
     const items = Object.entries(topTools || {}).sort((a, b) => b[1] - a[1]).slice(0, 10);
     const names = items.map(([name]) => name);
     const values = items.map(([, value]) => value);
-    
+    const total = values.reduce((s, v) => s + v, 0);
+    const maxVal = values.length > 0 ? values[0] : 1;
+
+    // 🏷️ 排名标签
+    const rankLabels = ['🥇', '🥈', '🥉', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+
+    // 🎨 10 色调色板（从暖到冷）
+    const palette = [
+        '#6366f1', '#8b5cf6', '#a855f7', '#3b82f6', '#06b6d4',
+        '#10b981', '#f59e0b', '#f97316', '#ef4444', '#ec4899'
+    ];
+
+    // 数据反转以匹配横向柱状图从上到下
+    const revNames = [...names].reverse();
+    const revValues = [...values].reverse();
+
     auditToolsChart.setOption({
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'axis',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderColor: '#e2e8f0',
-            textStyle: { color: '#1e293b' }
+            backgroundColor: 'rgba(30, 41, 59, 0.97)',
+            borderColor: '#475569',
+            textStyle: { color: '#f1f5f9', fontSize: 13 },
+            formatter: function(params) {
+                const p = params[0];
+                const idx = revNames.length - 1 - p.dataIndex;
+                const pct = total > 0 ? (p.value / total * 100).toFixed(1) : 0;
+                const rank = idx + 1;
+                return `<b>${rankLabels[idx]} #${rank} ${p.name}</b><br/>
+                    调用次数: <b>${p.value}</b><br/>
+                    占比: <b>${pct}%</b><br/>
+                    占最高: <b>${(p.value / maxVal * 100).toFixed(0)}%</b>`;
+            }
         },
-        grid: { left: '25%', right: '10%', top: '5%', bottom: '5%' },
+        grid: { left: '2%', right: '12%', top: '5%', bottom: '5%' },
         xAxis: {
             type: 'value',
-            axisLine: { lineStyle: { color: '#e2e8f0' } },
-            splitLine: { lineStyle: { color: '#e2e8f0' } },
-            axisLabel: { color: '#64748b' }
+            axisLine: { show: false },
+            axisTick: { show: false },
+            splitLine: { lineStyle: { color: '#1e293b', type: 'dashed' } },
+            axisLabel: { color: '#94a3b8', fontSize: 10, formatter: '{value}' },
+            max: maxVal * 1.2
         },
         yAxis: {
             type: 'category',
-            data: names.reverse(),
-            axisLine: { lineStyle: { color: '#e2e8f0' } },
-            axisLabel: { color: '#94a3b8', fontSize: 11 }
+            data: revNames.map((name, i) => {
+                const idx = revNames.length - 1 - i;
+                return `${rankLabels[idx]}  ${name}`;
+            }),
+            axisLine: { show: false },
+            axisTick: { show: false },
+            axisLabel: {
+                color: '#cbd5e1',
+                fontSize: 12,
+                fontWeight: 500,
+                formatter: function(value) { return value; }
+            }
         },
-        series: [{
-            type: 'bar',
-            data: values.reverse(),
-            itemStyle: {
-                color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-                    { offset: 0, color: '#3b82f6' },
-                    { offset: 1, color: '#2563eb' }
-                ]),
-                borderRadius: [0, 4, 4, 0]
-            },
-            barWidth: '60%'
-        }]
+        series: [
+            {
+                name: '调用次数',
+                type: 'bar',
+                data: revValues.map((v, i) => ({
+                    value: v,
+                    itemStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                            { offset: 0, color: palette[revValues.length - 1 - i] + 'cc' },
+                            { offset: 1, color: palette[revValues.length - 1 - i] }
+                        ]),
+                        borderRadius: [0, 6, 6, 0]
+                    }
+                })),
+                barWidth: '55%',
+                label: {
+                    show: true,
+                    position: 'right',
+                    color: '#94a3b8',
+                    fontSize: 11,
+                    fontWeight: 'bold',
+                    formatter: '{c}',
+                    distance: 6
+                },
+                emphasis: {
+                    itemStyle: { shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.4)' },
+                    label: { fontSize: 13, color: '#f1f5f9' }
+                },
+                // 背景条（灰色参考）
+                barBackgroundStyle: {
+                    color: 'rgba(255, 255, 255, 0.03)',
+                    borderRadius: [0, 6, 6, 0]
+                }
+            }
+        ]
     });
+
+    // 更新工具摘要面板
+    updateToolsSummaryPanel(items, total);
+}
+
+function updateToolsSummaryPanel(items, total) {
+    const panel = document.getElementById('toolsSummaryPanel');
+    if (!panel) return;
+
+    if (items.length === 0) {
+        panel.innerHTML = '<p style="color:var(--text-secondary);text-align:center;font-size:12px;">暂无数据</p>';
+        return;
+    }
+
+    const top1 = items[0];
+    const top1Pct = total > 0 ? (top1[1] / total * 100).toFixed(1) : 0;
+    const top3Sum = items.slice(0, 3).reduce((s, i) => s + i[1], 0);
+    const top3Pct = total > 0 ? (top3Sum / total * 100).toFixed(1) : 0;
+
+    panel.innerHTML = `
+        <div class="ts-item">
+            <span class="ts-label">🏆 最常用</span>
+            <span class="ts-value">${escapeHtml(top1[0])}<small> (${top1[1]}次, ${top1Pct}%)</small></span>
+        </div>
+        <div class="ts-item">
+            <span class="ts-label">📊 TOP3 占比</span>
+            <span class="ts-value"><b>${top3Pct}%</b><small> (${top3Sum}次)</small></span>
+        </div>
+        <div class="ts-item">
+            <span class="ts-label">🔧 工具种类</span>
+            <span class="ts-value">${items.length} 种</span>
+        </div>
+        <div class="ts-item">
+            <span class="ts-label">📝 总调用</span>
+            <span class="ts-value">${total} 次</span>
+        </div>
+    `;
 }
 
 function updateAuditRiskChart(riskDist) {
     if (!auditRiskChart || typeof echarts === 'undefined') return;
-    const data = Object.entries(riskDist || {}).map(([name, value]) => ({ name, value }));
-    const colorMap = {
-        'safe': '#16a34a',
-        'low': '#3b82f6',
-        'medium': '#f59e0b',
-        'high': '#dc2626',
-        'critical': '#7f1d1d'
+    auditRiskChart.clear();
+
+    const riskLabelMap = {
+        'safe': '安全',
+        'low': '低风险',
+        'medium': '中风险',
+        'high': '高风险',
+        'critical': '严重'
     };
-    
+    const riskDescMap = {
+        'safe': '无需审批，直接执行。包括查看系统信息、列出服务、查询进程等只读操作。',
+        'low': '低风险操作，允许执行。包括查看日志、检测端口、查询网络状态等轻度操作。',
+        'medium': '中风险操作，建议确认后执行。包括重启非关键服务、修改非系统文件等操作。',
+        'high': '高风险操作，需要用户确认。包括停止服务、修改配置、终止进程等操作。',
+        'critical': '严重风险，已被系统阻断。包括操作关键系统服务(sshd/network)、访问安全文件(/etc/shadow)、修改系统配置等。'
+    };
+    // 各风险级别的典型触发原因
+    const riskReasonMap = {
+        'safe': '• 查询类工具: list_services, get_processes, get_system_info\n• 只读操作, 不影响系统运行状态',
+        'low': '• 信息收集: get_open_ports, get_network, read_file(/var/log)\n• 轻度诊断: check_disk, check_memory',
+        'medium': '• 服务管理: restart_service(nginx/mysql)\n• 文件修改: write_file(/opt/), modify_config\n• 触发确认规则匹配',
+        'high': '• 高危命令: stop_service, kill_process, rm_file\n• 系统配置修改: /etc/ 目录写入\n• 触发 security.dangerous_commands 规则',
+        'critical': '• 关键服务: sshd, network, systemd-journald\n• 安全文件: /etc/shadow, /etc/sudoers\n• 触发 CRITICAL_SERVICES 阻断规则'
+    };
+
+    const rawData = Object.entries(riskDist || {}).map(([name, value]) => ({
+        name: riskLabelMap[name] || name,
+        rawName: name,
+        value: value
+    }));
+    const total = rawData.reduce((sum, d) => sum + d.value, 0);
+
+    // 按严重程度排序
+    const order = ['critical', 'high', 'medium', 'low', 'safe'];
+    rawData.sort((a, b) => order.indexOf(a.rawName) - order.indexOf(b.rawName));
+
     auditRiskChart.setOption({
         backgroundColor: 'transparent',
+        // 中心文字
+        graphic: total > 0 ? [{
+            type: 'text',
+            left: 'center',
+            top: 'center',
+            style: {
+                text: total + '\n次操作',
+                textAlign: 'center',
+                fill: '#94a3b8',
+                fontSize: 14,
+                lineHeight: 20,
+                fontWeight: 'bold'
+            }
+        }] : [],
         tooltip: {
             trigger: 'item',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderColor: '#e2e8f0',
-            textStyle: { color: '#1e293b' }
-        },
-        series: [{
-            type: 'pie',
-            radius: ['30%', '60%'],
-            center: ['50%', '50%'],
-            roseType: 'area',
-            itemStyle: { borderRadius: 4, borderColor: '#1e293b', borderWidth: 1 },
-            label: { show: true, color: '#94a3b8', formatter: '{b}\n{c}' },
-            labelLine: { lineStyle: { color: '#334155' } },
-            data: data.length > 0 ? data : [{ name: '无数据', value: 0 }],
-            color: data.map(d => colorMap[d.name] || '#64748b')
-        }]
-    });
-}
-
-function updateAuditBlockedChart(blockedReasons) {
-    if (!auditBlockedChart || typeof echarts === 'undefined') return;
-    const data = Object.entries(blockedReasons || {}).map(([name, value]) => ({ name, value }));
-    
-    auditBlockedChart.setOption({
-        backgroundColor: 'transparent',
-        tooltip: {
-            trigger: 'item',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderColor: '#e2e8f0',
-            textStyle: { color: '#1e293b' }
+            backgroundColor: 'rgba(30, 41, 59, 0.97)',
+            borderColor: '#475569',
+            textStyle: { color: '#f1f5f9', fontSize: 13 },
+            formatter: function(p) {
+                const pct = total > 0 ? (p.value / total * 100).toFixed(1) : 0;
+                const rawName = p.data?.rawName || '';
+                const desc = riskDescMap[rawName] || '';
+                return `<b style="font-size:15px;">${p.name}</b><br/>
+                    <span style="font-size:18px;font-weight:bold;">${p.value}</span> 次
+                    (<span style="color:#f59e0b;">${pct}%</span>)<br/>
+                    <hr style="border-color:#475569;margin:6px 0;"/>
+                    <span style="color:#94a3b8;font-size:11px;line-height:1.6;">${desc}</span>`;
+            }
         },
         series: [{
             type: 'pie',
             radius: ['35%', '65%'],
             center: ['50%', '50%'],
+            roseType: 'area',
             itemStyle: { borderRadius: 6, borderColor: '#1e293b', borderWidth: 2 },
-            label: { show: true, color: '#94a3b8', formatter: '{b}: {c}' },
-            labelLine: { lineStyle: { color: '#334155' } },
-            data: data.length > 0 ? data : [{ name: '无拦截数据', value: 0 }],
-            color: ['#dc2626', '#f59e0b', '#64748b']
+            label: {
+                show: true,
+                color: '#cbd5e1',
+                fontSize: 12,
+                fontWeight: 500,
+                formatter: function(p) {
+                    const pct = total > 0 ? (p.value / total * 100).toFixed(1) : 0;
+                    return p.name + '\n' + pct + '%';
+                }
+            },
+            labelLine: { show: true, lineStyle: { color: '#475569' }, length: 18, length2: 14 },
+            emphasis: {
+                label: { fontSize: 16, fontWeight: 'bold', color: '#f1f5f9' },
+                scaleSize: 12,
+                itemStyle: { shadowBlur: 20, shadowColor: 'rgba(0,0,0,0.5)' }
+            },
+            data: rawData.length > 0 ? rawData : [{ name: '无数据', value: 0, rawName: '' }],
+            color: rawData.map(d => {
+                const cmap = { 'safe': '#16a34a', 'low': '#3b82f6', 'medium': '#f59e0b', 'high': '#dc2626', 'critical': '#7f1d1d' };
+                return cmap[d.rawName] || '#64748b';
+            })
         }]
+    });
+
+    // 点击扇区显示详细原因
+    auditRiskChart.off('click');
+    auditRiskChart.on('click', function(params) {
+        if (!params.data || !params.data.rawName) return;
+        const desc = riskDescMap[params.data.rawName] || '暂无说明';
+        const reasons = riskReasonMap[params.data.rawName] || '';
+        const pct = total > 0 ? (params.data.value / total * 100).toFixed(1) : 0;
+        alert(
+            '【' + params.data.name + '】' + ' — ' + params.data.value + ' 次 (' + pct + '%)\n\n' +
+            '📋 说明:\n' + desc + '\n\n' +
+            '🔍 常见触发原因:\n' + reasons
+        );
+    });
+
+    // 更新右侧风险原因面板
+    updateRiskReasonPanel(rawData, total);
+}
+
+function updateRiskReasonPanel(rawData, total) {
+    const panel = document.getElementById('riskReasonPanel');
+    if (!panel) return;
+
+    if (rawData.length === 0) {
+        panel.innerHTML = '<p style="color:var(--text-secondary);text-align:center;">暂无数据</p>';
+        return;
+    }
+
+    const order = ['critical', 'high', 'medium', 'low', 'safe'];
+    const iconMap = { 'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🔵', 'safe': '🟢' };
+    const descShortMap = {
+        'safe': '只读查询操作',
+        'low': '轻度信息收集',
+        'medium': '服务/文件修改',
+        'high': '需确认的高危操作',
+        'critical': '已阻断的关键操作'
+    };
+
+    panel.innerHTML = rawData
+        .sort((a, b) => order.indexOf(a.rawName) - order.indexOf(b.rawName))
+        .map(d => {
+            const pct = total > 0 ? (d.value / total * 100).toFixed(1) : 0;
+            const icon = iconMap[d.rawName] || '⚪';
+            const desc = descShortMap[d.rawName] || '';
+            return `
+            <div class="risk-reason-item risk-${d.rawName}">
+                <span class="risk-reason-icon">${icon}</span>
+                <div class="risk-reason-body">
+                    <span class="risk-reason-name">${d.name}</span>
+                    <span class="risk-reason-desc">${desc}</span>
+                </div>
+                <span class="risk-reason-value">${d.value}<small> (${pct}%)</small></span>
+            </div>
+        `;
+    }).join('');
+}
+
+function updateAuditBlockedChart(blockedReasons) {
+    if (!auditBlockedChart || typeof echarts === 'undefined') return;
+    auditBlockedChart.clear();
+
+    const descMap = {
+        '意图拦截': '用户输入包含恶意意图或越权操作描述，被安全护栏在意图识别阶段拦截。\n\n典型特征:\n• 尝试执行未授权的管理操作\n• 输入包含敏感路径或危险命令关键词\n• 试图绕过安全策略的请求',
+        '命令拦截': '解析出的MCP工具调用匹配到了危险命令规则，触发安全校验阻断。\n\n典型特征:\n• 调用了高风险工具(stop_service, kill_process等)\n• 操作目标为关键系统服务(sshd, network等)\n• 访问受保护的系统文件(/etc/shadow等)',
+        '其他拦截': '不属于意图或命令层面的拦截，包括权限不足、参数校验失败、系统资源限制等。\n\n典型特征:\n• 权限提升请求被拒绝\n• 工具参数超出安全范围\n• 系统安全策略限制'
+    };
+
+    const rawData = Object.entries(blockedReasons || {}).map(([name, value]) => ({
+        name: name,
+        value: value
+    }));
+    const total = rawData.reduce((sum, d) => sum + d.value, 0);
+
+    auditBlockedChart.setOption({
+        backgroundColor: 'transparent',
+        graphic: total > 0 ? [{
+            type: 'text',
+            left: 'center',
+            top: 'center',
+            style: {
+                text: total + '\n次拦截',
+                textAlign: 'center',
+                fill: '#fca5a5',
+                fontSize: 15,
+                lineHeight: 20,
+                fontWeight: 'bold'
+            }
+        }] : [],
+        tooltip: {
+            trigger: 'item',
+            backgroundColor: 'rgba(30, 41, 59, 0.97)',
+            borderColor: '#475569',
+            textStyle: { color: '#f1f5f9', fontSize: 13 },
+            formatter: function(p) {
+                const pct = total > 0 ? (p.value / total * 100).toFixed(1) : 0;
+                return `<b style="font-size:15px;">${p.name}</b><br/>
+                    <span style="font-size:18px;font-weight:bold;color:#fca5a5;">${p.value}</span> 次
+                    (<span style="color:#f59e0b;">${pct}%</span>)<br/>
+                    <span style="color:#94a3b8;font-size:11px;">点击查看详细分析</span>`;
+            }
+        },
+        legend: {
+            orient: 'vertical',
+            right: '3%',
+            top: 'center',
+            textStyle: { color: '#94a3b8', fontSize: 12 },
+            itemWidth: 12, itemHeight: 12, itemGap: 14
+        },
+        series: [{
+            type: 'pie',
+            radius: ['40%', '70%'],
+            center: ['45%', '50%'],
+            avoidLabelOverlap: true,
+            itemStyle: { borderRadius: 8, borderColor: '#1e293b', borderWidth: 3 },
+            label: {
+                show: true,
+                color: '#cbd5e1',
+                fontSize: 12,
+                fontWeight: 500,
+                formatter: function(p) {
+                    const pct = total > 0 ? (p.value / total * 100).toFixed(1) : 0;
+                    return p.name + '\n' + pct + '%';
+                }
+            },
+            labelLine: { show: true, lineStyle: { color: '#475569' }, length: 20, length2: 16 },
+            emphasis: {
+                label: { fontSize: 16, fontWeight: 'bold', color: '#f1f5f9' },
+                scaleSize: 12,
+                itemStyle: { shadowBlur: 20, shadowColor: 'rgba(239, 68, 68, 0.4)' }
+            },
+            data: rawData.length > 0 ? rawData : [{ name: '无拦截数据', value: 0 }],
+            color: ['#dc2626', '#f59e0b', '#ef4444']
+        }]
+    });
+
+    // 点击扇区弹出详细分析
+    auditBlockedChart.off('click');
+    auditBlockedChart.on('click', function(params) {
+        if (!params.data || !params.data.name) return;
+        const desc = descMap[params.data.name] || '暂无详细分析';
+        const pct = total > 0 ? (params.data.value / total * 100).toFixed(1) : 0;
+        alert(
+            '【' + params.data.name + '】' + ' — ' + params.data.value + ' 次 (' + pct + '%)\n\n' +
+            '📋 原因分析:\n' + desc
+        );
+    });
+
+    // 更新右侧详情面板
+    updateBlockedDetailPanel(rawData, total);
+}
+
+function updateBlockedDetailPanel(rawData, total) {
+    const panel = document.getElementById('blockedDetailPanel');
+    if (!panel) return;
+
+    if (rawData.length === 0) {
+        panel.innerHTML = '<p style="color:var(--text-secondary);text-align:center;">✅ 暂无拦截记录，系统运行安全</p>';
+        return;
+    }
+
+    const iconMap = { '意图拦截': '🧠', '命令拦截': '🛡️', '其他拦截': '⚠️' };
+    const analysisMap = {
+        '意图拦截': '在用户输入阶段即被安全护栏识别并拦截，阻止了潜在的恶意操作进入推理流程。',
+        '命令拦截': '意图通过了初步检查，但解析出的工具调用触发了危险命令匹配规则，在执行前被阻断。',
+        '其他拦截': '因权限、参数或系统策略等原因被拦截，属于安全防护的兜底机制。'
+    };
+
+    panel.innerHTML = `
+        <h5>🔍 拦截详情分析</h5>
+        ${rawData.map(d => {
+            const pct = total > 0 ? (d.value / total * 100).toFixed(1) : 0;
+            const icon = iconMap[d.name] || '📌';
+            const analysis = analysisMap[d.name] || '';
+            return `
+            <div class="blocked-detail-item">
+                <div class="blocked-detail-header">
+                    <span class="blocked-detail-icon">${icon}</span>
+                    <span class="blocked-detail-name">${d.name}</span>
+                    <span class="blocked-detail-count">${d.value} 次 <small>(${pct}%)</small></span>
+                </div>
+                <p class="blocked-detail-analysis">${analysis}</p>
+            </div>
+        `;}).join('')}
+    `;
+}
+
+function updateAuditUsersChart(topUsers) {
+    if (!auditUsersChart || typeof echarts === 'undefined') return;
+    auditUsersChart.clear();
+
+    const items = Object.entries(topUsers || {}).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const names = items.map(([name]) => name);
+    const values = items.map(([, value]) => value);
+    const total = values.reduce((s, v) => s + v, 0);
+    const maxVal = values.length > 0 ? values[0] : 1;
+
+    // 🏷️ 排名标签
+    const rankLabels = ['🥇', '🥈', '🥉', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+
+    // 🎨 暖色→冷色调色板
+    const palette = [
+        '#f97316', '#f59e0b', '#eab308', '#10b981', '#06b6d4',
+        '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#ec4899'
+    ];
+
+    const revNames = [...names].reverse();
+    const revValues = [...values].reverse();
+
+    auditUsersChart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: 'rgba(30, 41, 59, 0.97)',
+            borderColor: '#475569',
+            textStyle: { color: '#f1f5f9', fontSize: 13 },
+            formatter: function(params) {
+                const p = params[0];
+                const idx = revNames.length - 1 - p.dataIndex;
+                const pct = total > 0 ? (p.value / total * 100).toFixed(1) : 0;
+                const rank = idx + 1;
+                return `<b>${rankLabels[idx]} #${rank} ${p.name}</b><br/>
+                    操作次数: <b>${p.value}</b><br/>
+                    总占比: <b>${pct}%</b><br/>
+                    活跃指数: <b>${'█'.repeat(Math.min(Math.ceil(p.value / maxVal * 20), 20))}</b>`;
+            }
+        },
+        grid: { left: '2%', right: '12%', top: '5%', bottom: '5%' },
+        xAxis: {
+            type: 'value',
+            axisLine: { show: false },
+            axisTick: { show: false },
+            splitLine: { lineStyle: { color: '#1e293b', type: 'dashed' } },
+            axisLabel: { color: '#94a3b8', fontSize: 10 },
+            max: maxVal * 1.2
+        },
+        yAxis: {
+            type: 'category',
+            data: revNames.map((name, i) => {
+                const idx = revNames.length - 1 - i;
+                return `${rankLabels[idx]}  ${name}`;
+            }),
+            axisLine: { show: false },
+            axisTick: { show: false },
+            axisLabel: {
+                color: '#cbd5e1',
+                fontSize: 12,
+                fontWeight: 500
+            }
+        },
+        series: [{
+            name: '操作次数',
+            type: 'bar',
+            data: revValues.map((v, i) => ({
+                value: v,
+                itemStyle: {
+                    color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                        { offset: 0, color: palette[revValues.length - 1 - i] + 'cc' },
+                        { offset: 1, color: palette[revValues.length - 1 - i] }
+                    ]),
+                    borderRadius: [0, 6, 6, 0]
+                }
+            })),
+            barWidth: '55%',
+            label: {
+                show: true,
+                position: 'right',
+                color: '#94a3b8',
+                fontSize: 11,
+                fontWeight: 'bold',
+                formatter: '{c}',
+                distance: 6
+            },
+            emphasis: {
+                itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.5)' },
+                label: { fontSize: 13, color: '#f1f5f9' }
+            },
+            barBackgroundStyle: {
+                color: 'rgba(255, 255, 255, 0.03)',
+                borderRadius: [0, 6, 6, 0]
+            }
+        }]
+    });
+
+    // 更新用户摘要面板
+    updateUsersSummaryPanel(items, total);
+}
+
+function updateUsersSummaryPanel(items, total) {
+    const panel = document.getElementById('usersSummaryPanel');
+    if (!panel) return;
+
+    if (items.length === 0) {
+        panel.innerHTML = '<p style="color:var(--text-secondary);text-align:center;font-size:12px;">暂无数据</p>';
+        return;
+    }
+
+    const top1 = items[0];
+    const top1Pct = total > 0 ? (top1[1] / total * 100).toFixed(1) : 0;
+    const avgPerUser = items.length > 0 ? (total / items.length).toFixed(1) : 0;
+
+    panel.innerHTML = `
+        <div class="ts-item">
+            <span class="ts-label">👑 最活跃</span>
+            <span class="ts-value">${escapeHtml(top1[0])}<small> (${top1[1]}次, ${top1Pct}%)</small></span>
+        </div>
+        <div class="ts-item">
+            <span class="ts-label">📊 人均操作</span>
+            <span class="ts-value"><b>${avgPerUser}</b><small> 次/人</small></span>
+        </div>
+        <div class="ts-item">
+            <span class="ts-label">👥 活跃用户</span>
+            <span class="ts-value">${items.length} 人</span>
+        </div>
+        <div class="ts-item">
+            <span class="ts-label">📝 总操作</span>
+            <span class="ts-value">${total} 次</span>
+        </div>
+    `;
+}
+
+function updateAuditNodeTypeChart(nodeTypes) {
+    if (!auditNodeTypeChart || typeof echarts === 'undefined') return;
+    auditNodeTypeChart.clear();
+
+    const nodeLabelMap = {
+        'intent_received': '意图接收',
+        'security_check': '安全检查',
+        'reasoning': '推理决策',
+        'tool_call': '工具调用',
+        'result': '执行结果',
+        'summary': '汇总输出',
+        'confirmation': '用户确认',
+        'privilege': '权限审批'
+    };
+    const nodeDescMap = {
+        'intent_received': '用户输入的自然语言指令',
+        'security_check': '安全护栏对指令/工具进行风险评级',
+        'reasoning': 'LLM 推理选择合适的工具和参数',
+        'tool_call': '调用 MCP 工具执行具体操作',
+        'result': '工具执行完成后的返回结果',
+        'summary': 'LLM 对执行结果进行总结输出',
+        'confirmation': '用户对高风险操作的确认',
+        'privilege': 'root 权限提升审批流程'
+    };
+
+    const rawData = Object.entries(nodeTypes || {}).map(([name, value]) => ({
+        name: nodeLabelMap[name] || name,
+        rawName: name,
+        value: value
+    }));
+    const total = rawData.reduce((sum, d) => sum + d.value, 0);
+
+    auditNodeTypeChart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'item',
+            backgroundColor: 'rgba(30, 41, 59, 0.97)',
+            borderColor: '#475569',
+            textStyle: { color: '#f1f5f9', fontSize: 13 },
+            formatter: function(p) {
+                const pct = total > 0 ? (p.value / total * 100).toFixed(1) : 0;
+                const rawName = p.data?.rawName || '';
+                const desc = nodeDescMap[rawName] || '';
+                return `<b>${p.name}</b><br/>
+                    次数: <b>${p.value}</b><br/>
+                    占比: <b>${pct}%</b><br/>
+                    <span style="color:#94a3b8;font-size:11px;">${desc}</span>`;
+            }
+        },
+        series: [{
+            type: 'pie',
+            radius: ['40%', '70%'],
+            center: ['50%', '50%'],
+            roseType: 'area',
+            itemStyle: { borderRadius: 4, borderColor: '#1e293b', borderWidth: 1 },
+            label: {
+                show: true,
+                color: '#94a3b8',
+                fontSize: 11,
+                formatter: function(p) {
+                    const pct = total > 0 ? (p.value / total * 100).toFixed(1) : 0;
+                    return p.name + ' ' + pct + '%';
+                }
+            },
+            labelLine: { show: true, lineStyle: { color: '#334155' }, length: 12, length2: 8 },
+            emphasis: { label: { fontSize: 14, fontWeight: 'bold' }, scaleSize: 8 },
+            data: rawData.length > 0 ? rawData : [{ name: '无数据', value: 0, rawName: '' }],
+            color: rawData.map(d => {
+                const cmap = {
+                    'intent_received': '#3b82f6', 'security_check': '#f59e0b',
+                    'reasoning': '#8b5cf6', 'tool_call': '#16a34a',
+                    'result': '#06b6d4', 'summary': '#ec4899',
+                    'confirmation': '#f97316', 'privilege': '#e11d48'
+                };
+                return cmap[d.rawName] || '#64748b';
+            })
+        }]
+    });
+
+    auditNodeTypeChart.off('click');
+    auditNodeTypeChart.on('click', function(params) {
+        if (!params.data || !params.data.rawName) return;
+        const desc = nodeDescMap[params.data.rawName] || '暂无说明';
+        alert(params.data.name + '：' + desc + '\n\n次数: ' + params.data.value);
     });
 }
 
@@ -1120,12 +2511,14 @@ function formatSessionTime(timestamp) {
 // ===== 网络流量趋势图 =====
 function updateNetworkChart(history) {
     if (!networkChart || typeof echarts === 'undefined') return;
-    
+
+    networkChart.clear();
+
     const timestamps = history.map(h => {
         const d = new Date(h.timestamp * 1000);
-        return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0') + ':' + d.getSeconds().toString().padStart(2, '0');
+        return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
     });
-    
+
     // 聚合所有接口的 RX/TX 速率
     const rxData = history.map(h => {
         const net = h.network || {};
@@ -1137,7 +2530,7 @@ function updateNetworkChart(history) {
         const ifaces = net.interfaces || [];
         return Math.round(ifaces.reduce((sum, iface) => sum + (iface.tx_rate_kb || 0), 0));
     });
-    
+
     const option = {
         backgroundColor: 'transparent',
         tooltip: {
@@ -1149,14 +2542,14 @@ function updateNetworkChart(history) {
         legend: {
             data: ['接收 (RX)', '发送 (TX)'],
             textStyle: { color: '#64748b' },
-            bottom: 0
+            top: 0
         },
-        grid: { left: '10%', right: '5%', top: '10%', bottom: '20%' },
+        grid: { left: '8%', right: '5%', top: '12%', bottom: '8%' },
         xAxis: {
             type: 'category',
             data: timestamps,
             axisLine: { lineStyle: { color: '#e2e8f0' } },
-            axisLabel: { color: '#64748b', fontSize: 10 }
+            axisLabel: { color: '#64748b', fontSize: 10, interval: Math.max(0, Math.floor(timestamps.length / 6) - 1) }
         },
         yAxis: {
             type: 'value',
@@ -1195,28 +2588,98 @@ function checkMetricAlerts(data) {
     const cpu = data.cpu || {};
     const mem = data.memory || {};
     const disk = data.disk || {};
-    
-    // CPU 告警
+    const proc = data.processes || {};
+    const svc = data.services || {};
+    const swap = data.memory || {};
+
+    // CPU 告警 CSS
     const cpuEl = document.getElementById('cpuValue');
     if (cpuEl) {
         const pct = cpu.usage_percent || 0;
         setAlertClass(cpuEl.parentElement.parentElement, pct);
     }
-    
-    // 内存告警
+
+    // 内存告警 CSS
     const memEl = document.getElementById('memValue');
     if (memEl) {
         const pct = mem.usage_percent || 0;
         setAlertClass(memEl.parentElement.parentElement, pct);
     }
-    
-    // 磁盘告警
+
+    // 磁盘告警 CSS
     const diskEl = document.getElementById('diskValue');
     if (diskEl) {
         const partitions = disk.partitions || [];
         const maxPct = partitions.length > 0 ? partitions[0].usage_percent : 0;
         setAlertClass(diskEl.parentElement.parentElement, maxPct);
     }
+
+    // 更新告警面板
+    updateAlertsPanel(data);
+}
+
+function updateAlertsPanel(data) {
+    const panel = document.getElementById('alertsPanel');
+    if (!panel) return;
+
+    const cpu = data.cpu || {};
+    const mem = data.memory || {};
+    const disk = data.disk || {};
+    const proc = data.processes || {};
+    const svc = data.services || {};
+
+    const alerts = [];
+
+    // CPU
+    if (cpu.usage_percent >= 90) alerts.push({ lvl: 'critical', msg: 'CPU 使用率 ' + cpu.usage_percent + '%', tip: '检查高负载进程，考虑扩容或限流' });
+    else if (cpu.usage_percent >= 80) alerts.push({ lvl: 'warning', msg: 'CPU 使用率 ' + cpu.usage_percent + '%', tip: '关注负载趋势，检查是否有异常进程' });
+    else if (cpu.usage_percent >= 60) alerts.push({ lvl: 'info', msg: 'CPU 使用率 ' + cpu.usage_percent + '%', tip: '负载稍高，正常运行中' });
+
+    // 内存
+    if (mem.usage_percent >= 90) alerts.push({ lvl: 'critical', msg: '内存使用率 ' + mem.usage_percent + '%', tip: '检查内存泄漏，考虑增加内存或重启服务' });
+    else if (mem.usage_percent >= 80) alerts.push({ lvl: 'warning', msg: '内存使用率 ' + mem.usage_percent + '%', tip: '关注内存增长趋势' });
+
+    // 磁盘
+    const partitions = disk.partitions || [];
+    partitions.forEach(p => {
+        if (p.usage_percent >= 90) alerts.push({ lvl: 'critical', msg: p.mount + ' 磁盘使用率 ' + p.usage_percent + '% (' + p.used + '/' + p.size + ')', tip: '尽快清理磁盘空间或扩容' });
+        else if (p.usage_percent >= 80) alerts.push({ lvl: 'warning', msg: p.mount + ' 磁盘使用率 ' + p.usage_percent + '% (' + p.used + '/' + p.size + ')', tip: '建议提前清理磁盘空间' });
+    });
+
+    // 交换分区
+    if (mem.swap_usage_percent >= 50) alerts.push({ lvl: 'warning', msg: '交换分区使用率 ' + mem.swap_usage_percent + '%', tip: '物理内存可能不足，建议增加内存' });
+
+    // 僵尸进程
+    if (proc.zombie > 0) alerts.push({ lvl: 'warning', msg: '存在 ' + proc.zombie + ' 个僵尸进程', tip: '检查父进程是否正确回收子进程' });
+
+    // 失败服务
+    if (svc.failed > 0) {
+        alerts.push({ lvl: 'critical', msg: '存在 ' + svc.failed + ' 个失败服务', tip: '检查失败服务日志，尝试重启: ' + (svc.failed_list || []).join(', ') });
+    }
+
+    // 负载
+    if (cpu.load_avg && cpu.cores) {
+        const load1 = cpu.load_avg[0];
+        if (load1 > cpu.cores * 1.5) alerts.push({ lvl: 'critical', msg: '系统负载过高 ' + load1.toFixed(1) + ' (CPU ' + cpu.cores + '核)', tip: '系统严重过载，立即排查高负载进程' });
+        else if (load1 > cpu.cores) alerts.push({ lvl: 'warning', msg: '系统负载偏高 ' + load1.toFixed(1) + ' (CPU ' + cpu.cores + '核)', tip: '系统负载超过核心数，关注性能' });
+    }
+
+    if (alerts.length === 0) {
+        panel.innerHTML = '<div class="alerts-all-clear">✅ 所有指标正常，系统运行良好</div>';
+        return;
+    }
+
+    const iconMap = { critical: '🔴', warning: '🟡', info: '🔵' };
+
+    panel.innerHTML = alerts.map(a => `
+        <div class="alert-row alert-${a.lvl}">
+            <span class="alert-icon">${iconMap[a.lvl]}</span>
+            <div class="alert-body">
+                <span class="alert-msg">${a.msg}</span>
+                <span class="alert-tip">💡 ${a.tip}</span>
+            </div>
+        </div>
+    `).join('');
 }
 
 function setAlertClass(element, percent) {
@@ -1234,63 +2697,6 @@ function setAlertClass(element, percent) {
 
 // 通知系统
 
-
-// 全局搜索功能
-function initGlobalSearch() {
-    const searchInput = document.createElement('input');
-    searchInput.type = 'text';
-    searchInput.placeholder = '搜索会话、命令...';
-    searchInput.className = 'global-search-input';
-    searchInput.style.cssText = `
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 400px;
-        max-width: 90%;
-        padding: 12px 16px;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-lg);
-        color: var(--text-primary);
-        font-size: 14px;
-        outline: none;
-        z-index: 3000;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        display: none;
-    `;
-    
-    document.body.appendChild(searchInput);
-    
-    // Ctrl/Cmd + K 打开搜索
-    document.addEventListener('keydown', (e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-            e.preventDefault();
-            searchInput.style.display = 'block';
-            searchInput.focus();
-        }
-        if (e.key === 'Escape') {
-            searchInput.style.display = 'none';
-            searchInput.value = '';
-        }
-    });
-    
-    searchInput.addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase();
-        if (query.length > 0) {
-            // 搜索历史会话
-            const sessionItems = document.querySelectorAll('.session-item');
-            sessionItems.forEach(item => {
-                const title = item.querySelector('.session-title').textContent.toLowerCase();
-                item.style.display = title.includes(query) ? 'block' : 'none';
-            });
-        } else {
-            document.querySelectorAll('.session-item').forEach(item => {
-                item.style.display = 'block';
-            });
-        }
-    });
-}
 
 // 打字机效果
 function typewriterEffect(element, text, speed = 30) {
@@ -1350,98 +2756,6 @@ function addMessageMenu(messageEl) {
             }
             menu.style.display = 'none';
         });
-    });
-}
-
-// 键盘快捷键
-function initKeyboardShortcuts() {
-    document.addEventListener('keydown', (e) => {
-        // Ctrl/Cmd + Enter 发送消息
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-            e.preventDefault();
-            sendMessage();
-        }
-        
-        // Ctrl + / 显示快捷键帮助
-        if ((e.ctrlKey || e.metaKey) && e.key === '/') {
-            e.preventDefault();
-            showShortcutHelp();
-        }
-        
-        // Alt + 左/右切换视图
-        if (e.altKey && e.key === 'ArrowLeft') {
-            e.preventDefault();
-            switchToPrevView();
-        }
-        if (e.altKey && e.key === 'ArrowRight') {
-            e.preventDefault();
-            switchToNextView();
-        }
-    });
-}
-
-function switchToPrevView() {
-    const views = ['chat', 'dashboard', 'audit', 'tools', 'config'];
-    const activeBtn = document.querySelector('.nav-btn.active');
-    if (!activeBtn) return;
-    
-    const currentView = activeBtn.dataset.view;
-    const currentIndex = views.indexOf(currentView);
-    const prevIndex = currentIndex > 0 ? currentIndex - 1 : views.length - 1;
-    
-    document.querySelector(`.nav-btn[data-view="${views[prevIndex]}"]`).click();
-}
-
-function switchToNextView() {
-    const views = ['chat', 'dashboard', 'audit', 'tools', 'config'];
-    const activeBtn = document.querySelector('.nav-btn.active');
-    if (!activeBtn) return;
-    
-    const currentView = activeBtn.dataset.view;
-    const currentIndex = views.indexOf(currentView);
-    const nextIndex = currentIndex < views.length - 1 ? currentIndex + 1 : 0;
-    
-    document.querySelector(`.nav-btn[data-view="${views[nextIndex]}"]`).click();
-}
-
-function showShortcutHelp() {
-    const helpContent = `
-        <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M6 16h.01M10 16h4M18 16h.01"/></svg> 键盘快捷键</h3>
-        <div style="margin-top: 16px; line-height: 1.8;">
-            <p><kbd>Ctrl/Cmd + Enter</kbd> - 发送消息</p>
-            <p><kbd>Ctrl/Cmd + K</kbd> - 打开搜索</p>
-            <p><kbd>Ctrl/Cmd + /</kbd> - 显示快捷键帮助</p>
-            <p><kbd>Alt + ←/→</kbd> - 切换视图</p>
-            <p><kbd>Esc</kbd> - 关闭弹窗/搜索</p>
-        </div>
-        <style>
-            kbd {
-                background: var(--bg-dark);
-                padding: 4px 8px;
-                border-radius: 4px;
-                font-family: monospace;
-                font-size: 12px;
-                border: 1px solid var(--border);
-            }
-        </style>
-    `;
-    
-    const modal = document.createElement('div');
-    modal.className = 'modal active';
-    modal.innerHTML = `
-        <div class="modal-content" style="max-width: 400px;">
-            <div class="modal-header">
-                <h3>快捷键帮助</h3>
-                <button class="close-btn" onclick="this.closest('.modal').remove()">&times;</button>
-            </div>
-            <div class="modal-body">${helpContent}</div>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
     });
 }
 
