@@ -203,7 +203,7 @@ class SecurityGuard:
         if tool_name in ("safe_remove", "remove_file", "delete_file", "rm_file"):
             real_target = posixpath.abspath(posixpath.expanduser(target))
             for cd in self.CRITICAL_DIRECTORIES:
-                if real_target == cd or real_target.startswith(cd + "/") and real_target.rstrip("/").count("/") <= cd.rstrip("/").count("/"):
+                if real_target == cd or (real_target.startswith(cd + "/") and real_target.rstrip("/").count("/") <= cd.rstrip("/").count("/")):
                     return False, f"禁止删除系统关键目录: {target}", RiskLevel.CRITICAL
             # 禁止删除 /tmp 和 /var/tmp 的目录本身（但可以删里面的文件）
             if real_target.rstrip("/") in ("/tmp", "/var/tmp"):
@@ -279,27 +279,27 @@ class SecurityGuard:
             param_safe, param_reason, param_level = self._validate_tool_parameters(tool_name, arguments)
             if not param_safe:
                 self._stats["command_blocks"] += 1
-                result["risk_level"] = param_level
+                result["risk_level"] = param_level.value if hasattr(param_level, "value") else str(param_level).lower()
                 return False, f"参数安全检查未通过: {param_reason}", result
             # 参数检查通过，但如果参数检查判定为需要确认，使用其风险等级
             if param_level != RiskLevel.SAFE:
-                result["risk_level"] = param_level
+                result["risk_level"] = param_level.value if hasattr(param_level, "value") else str(param_level).lower()
                 # 继续走下面的规则引擎评估，取最高风险等级
 
         # 2. 规则引擎评估
         risk_level, matched_rules = self.rule_engine.evaluate(command)
         
         # 如果参数级检查已经判定更高或同等风险，优先使用参数检查的结果
-        if result.get("risk_level") and result["risk_level"] != RiskLevel.SAFE:
-            # 使用 RiskLevel 枚举的 value 属性进行比较（"safe"/"low"/"medium"/"high"/"critical"）
+        if result.get("risk_level") and result["risk_level"] != "safe":
+            # result["risk_level"] 已统一为字符串
             LEVEL_MAP = {"safe": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
-            param_level_val = LEVEL_MAP.get(result["risk_level"].value if hasattr(result["risk_level"], "value") else str(result["risk_level"]).lower(), 0)
+            param_level_val = LEVEL_MAP.get(result["risk_level"], 0)
             rule_level_val = LEVEL_MAP.get(risk_level.value if hasattr(risk_level, "value") else str(risk_level).lower(), 0)
             if param_level_val >= rule_level_val:
-                risk_level = result["risk_level"]
+                risk_level = RiskLevel(result["risk_level"])
                 matched_rules.insert(0, {"name": "parameter_check", "level": risk_level, "description": param_reason, "action": "block" if param_level_val == 4 else "confirm"})
         
-        result["risk_level"] = risk_level
+        result["risk_level"] = risk_level.value if hasattr(risk_level, "value") else str(risk_level).lower()
         result["matched_rules"] = matched_rules
         
         # CRITICAL: 绝对阻断，不可逾越的红线
@@ -330,7 +330,7 @@ class SecurityGuard:
             else:
                 result["whitelist_check"] = True
                 # 不在白名单的命令升级为 MEDIUM 风险，确保必须确认
-                result["risk_level"] = RiskLevel.MEDIUM
+                result["risk_level"] = RiskLevel.MEDIUM.value
                 self._stats["command_confirms"] += 1
                 return True, "命令不在白名单范围内，需要确认", result
         

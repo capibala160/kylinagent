@@ -1,3 +1,6 @@
+import asyncio
+import ipaddress
+import socket
 import subprocess
 from typing import Any, Dict
 from .base import BaseTool, register_tool
@@ -170,17 +173,39 @@ class PingTool(BaseTool):
     
     # 禁止 ping 的私有/管理地址（防止内网扫描）
     FORBIDDEN_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
-    
+
+    async def _is_forbidden_host(self, host: str) -> bool:
+        """检查目标主机是否属于禁止访问的地址（回环、私有、链路本地等）"""
+        if host in self.FORBIDDEN_HOSTS:
+            return True
+        try:
+            loop = asyncio.get_running_loop()
+            infos = await loop.run_in_executor(None, socket.getaddrinfo, host, None)
+            for info in infos:
+                addr = info[4][0]
+                ip = ipaddress.ip_address(addr)
+                if (
+                    ip.is_loopback
+                    or ip.is_private
+                    or ip.is_link_local
+                    or ip.is_multicast
+                    or ip.is_reserved
+                ):
+                    return True
+        except Exception:
+            pass
+        return False
+
     async def execute(self, arguments: Dict[str, Any]) -> ToolCallResult:
         host = arguments.get("host")
         count = arguments.get("count", 4)
-        
+
         if not host:
             return ToolCallResult(
                 content=[TextContent(type="text", text="错误: 必须提供 host 参数")],
                 isError=True
             )
-        
+
         # 主机名安全校验：禁止命令注入字符
         forbidden_chars = set(";|&$`\n\r<>")
         if any(c in host for c in forbidden_chars):
@@ -188,10 +213,10 @@ class PingTool(BaseTool):
                 content=[TextContent(type="text", text=f"安全限制: 主机名包含非法字符")],
                 isError=True
             )
-        
-        if host in self.FORBIDDEN_HOSTS:
+
+        if await self._is_forbidden_host(host):
             return ToolCallResult(
-                content=[TextContent(type="text", text=f"安全限制: 禁止 ping 本地地址 {host}")],
+                content=[TextContent(type="text", text=f"安全限制: 禁止 ping 本地/私有地址 {host}")],
                 isError=True
             )
         

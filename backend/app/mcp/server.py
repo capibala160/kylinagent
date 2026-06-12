@@ -178,7 +178,8 @@ class MCPServer:
         cmd_safe, cmd_reason, cmd_detail = self.guard.validate_command(cmd_str, tool_name, arguments)
         risk_level = cmd_detail.get("risk_level", "safe")
 
-        if not cmd_safe and risk_level in ("critical", "high"):
+        risk_level_str = risk_level.value if hasattr(risk_level, "value") else str(risk_level).lower()
+        if not cmd_safe and risk_level_str in ("critical", "high"):
             # 高危操作阻断
             return CallToolResult(
                 isError=True,

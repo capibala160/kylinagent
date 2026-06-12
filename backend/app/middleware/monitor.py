@@ -3,6 +3,7 @@
 记录请求耗时、错误率、状态码分布等监控指标。
 """
 
+import asyncio
 import time
 import logging
 from typing import Dict, Optional, Callable
@@ -50,8 +51,11 @@ class RequestMonitor:
         
         # 开始时间
         self._start_time = time.time()
-    
-    def record_request(
+
+        # 保护共享状态的异步锁
+        self._lock = asyncio.Lock()
+
+    async def record_request(
         self,
         path: str,
         method: str,
@@ -62,23 +66,42 @@ class RequestMonitor:
         error: Optional[str] = None,
     ):
         """记录单个请求"""
-        now = time.time()
-        hour_key = datetime.now().strftime("%Y-%m-%d %H:00")
-        
-        # 更新统计
-        self._stats["total_requests"] += 1
-        self._stats["total_time_ms"] += duration_ms
-        self._stats["status_codes"][status_code] += 1
-        self._stats["path_counts"][path] += 1
-        self._stats["path_times"][path].append(duration_ms)
-        self._stats["hourly_counts"][hour_key] += 1
-        self._stats["hourly_avg_time"][hour_key].append(duration_ms)
-        
-        # 记录错误
-        if status_code >= 400:
-            self._stats["total_errors"] += 1
-            self._stats["hourly_errors"][hour_key] += 1
-            error_record = {
+        async with self._lock:
+            now = time.time()
+            hour_key = datetime.now().strftime("%Y-%m-%d %H:00")
+
+            # 更新统计
+            self._stats["total_requests"] += 1
+            self._stats["total_time_ms"] += duration_ms
+            self._stats["status_codes"][status_code] += 1
+            self._stats["path_counts"][path] += 1
+            self._stats["path_times"][path].append(duration_ms)
+            self._stats["hourly_counts"][hour_key] += 1
+            self._stats["hourly_avg_time"][hour_key].append(duration_ms)
+
+            # 记录错误
+            if status_code >= 400:
+                self._stats["total_errors"] += 1
+                self._stats["hourly_errors"][hour_key] += 1
+                error_record = {
+                    "timestamp": now,
+                    "datetime": datetime.now().isoformat(),
+                    "path": path,
+                    "method": method,
+                    "status_code": status_code,
+                    "duration_ms": duration_ms,
+                    "client_ip": client_ip,
+                    "user": user,
+                    "error": error,
+                }
+                self._error_history.append(error_record)
+                logger.warning(
+                    f"Request error: {method} {path} -> {status_code} ({duration_ms:.1f}ms) "
+                    f"client={client_ip} user={user}"
+                )
+
+            # 记录请求历史
+            request_record = {
                 "timestamp": now,
                 "datetime": datetime.now().isoformat(),
                 "path": path,
@@ -87,64 +110,47 @@ class RequestMonitor:
                 "duration_ms": duration_ms,
                 "client_ip": client_ip,
                 "user": user,
-                "error": error,
             }
-            self._error_history.append(error_record)
-            logger.warning(
-                f"Request error: {method} {path} -> {status_code} ({duration_ms:.1f}ms) "
-                f"client={client_ip} user={user}"
-            )
-        
-        # 记录请求历史
-        request_record = {
-            "timestamp": now,
-            "datetime": datetime.now().isoformat(),
-            "path": path,
-            "method": method,
-            "status_code": status_code,
-            "duration_ms": duration_ms,
-            "client_ip": client_ip,
-            "user": user,
-        }
-        self._request_history.append(request_record)
-        
-        # 清理过期的路径时间记录（保留最近 100 个）
-        for path_key in self._stats["path_times"]:
-            if len(self._stats["path_times"][path_key]) > 100:
-                self._stats["path_times"][path_key] = self._stats["path_times"][path_key][-100:]
-    
-    def get_stats(self) -> Dict:
+            self._request_history.append(request_record)
+
+            # 清理过期的路径时间记录（保留最近 100 个）
+            for path_key in self._stats["path_times"]:
+                if len(self._stats["path_times"][path_key]) > 100:
+                    self._stats["path_times"][path_key] = self._stats["path_times"][path_key][-100:]
+
+    async def get_stats(self) -> Dict:
         """获取监控统计信息"""
-        total = self._stats["total_requests"]
-        errors = self._stats["total_errors"]
-        total_time = self._stats["total_time_ms"]
-        
-        # 计算平均耗时
-        avg_time = round(total_time / total, 2) if total > 0 else 0
-        
-        # 计算错误率
-        error_rate = round(100.0 * errors / total, 2) if total > 0 else 0
-        
-        # 计算路径平均耗时
-        path_avg_times = {}
-        for path, times in self._stats["path_times"].items():
-            if times:
-                path_avg_times[path] = round(sum(times) / len(times), 2)
-        
-        # 计算小时平均耗时
-        hourly_avg_times = {}
-        for hour, times in self._stats["hourly_avg_time"].items():
-            if times:
-                hourly_avg_times[hour] = round(sum(times) / len(times), 2)
-        
-        # 耗时分布
-        durations = [r["duration_ms"] for r in self._request_history]
-        duration_stats = self._calculate_duration_stats(durations)
-        
-        # 运行时长
-        uptime_seconds = round(time.time() - self._start_time, 1)
-        
-        return {
+        async with self._lock:
+            total = self._stats["total_requests"]
+            errors = self._stats["total_errors"]
+            total_time = self._stats["total_time_ms"]
+
+            # 计算平均耗时
+            avg_time = round(total_time / total, 2) if total > 0 else 0
+
+            # 计算错误率
+            error_rate = round(100.0 * errors / total, 2) if total > 0 else 0
+
+            # 计算路径平均耗时
+            path_avg_times = {}
+            for path, times in self._stats["path_times"].items():
+                if times:
+                    path_avg_times[path] = round(sum(times) / len(times), 2)
+
+            # 计算小时平均耗时
+            hourly_avg_times = {}
+            for hour, times in self._stats["hourly_avg_time"].items():
+                if times:
+                    hourly_avg_times[hour] = round(sum(times) / len(times), 2)
+
+            # 耗时分布
+            durations = [r["duration_ms"] for r in self._request_history]
+            duration_stats = self._calculate_duration_stats(durations)
+
+            # 运行时长
+            uptime_seconds = round(time.time() - self._start_time, 1)
+
+            return {
             "uptime_seconds": uptime_seconds,
             "total_requests": total,
             "total_errors": errors,
@@ -198,30 +204,33 @@ class RequestMonitor:
             "p99_ms": round(percentile(99), 2),
         }
     
-    def get_recent_requests(self, limit: int = 50) -> list:
+    async def get_recent_requests(self, limit: int = 50) -> list:
         """获取最近的请求记录"""
-        return list(self._request_history)[-limit:]
-    
-    def get_recent_errors(self, limit: int = 20) -> list:
+        async with self._lock:
+            return list(self._request_history)[-limit:]
+
+    async def get_recent_errors(self, limit: int = 20) -> list:
         """获取最近的错误记录"""
-        return list(self._error_history)[-limit:]
-    
-    def reset_stats(self):
+        async with self._lock:
+            return list(self._error_history)[-limit:]
+
+    async def reset_stats(self):
         """重置统计信息"""
-        self._request_history.clear()
-        self._error_history.clear()
-        self._stats = {
-            "total_requests": 0,
-            "total_errors": 0,
-            "total_time_ms": 0,
-            "status_codes": defaultdict(int),
-            "path_counts": defaultdict(int),
-            "path_times": defaultdict(list),
-            "hourly_counts": defaultdict(int),
-            "hourly_errors": defaultdict(int),
-            "hourly_avg_time": defaultdict(list),
-        }
-        self._start_time = time.time()
+        async with self._lock:
+            self._request_history.clear()
+            self._error_history.clear()
+            self._stats = {
+                "total_requests": 0,
+                "total_errors": 0,
+                "total_time_ms": 0,
+                "status_codes": defaultdict(int),
+                "path_counts": defaultdict(int),
+                "path_times": defaultdict(list),
+                "hourly_counts": defaultdict(int),
+                "hourly_errors": defaultdict(int),
+                "hourly_avg_time": defaultdict(list),
+            }
+            self._start_time = time.time()
 
 
 class RequestMonitorMiddleware(BaseHTTPMiddleware):
@@ -294,7 +303,7 @@ class RequestMonitorMiddleware(BaseHTTPMiddleware):
             client_ip, user = self._get_client_info(request)
             
             # 记录请求
-            self.monitor.record_request(
+            await self.monitor.record_request(
                 path=path,
                 method=method,
                 status_code=status_code,
@@ -306,18 +315,18 @@ class RequestMonitorMiddleware(BaseHTTPMiddleware):
         
         return response
     
-    def get_stats(self) -> Dict:
+    async def get_stats(self) -> Dict:
         """获取监控统计信息"""
-        return self.monitor.get_stats()
-    
-    def get_recent_requests(self, limit: int = 50) -> list:
+        return await self.monitor.get_stats()
+
+    async def get_recent_requests(self, limit: int = 50) -> list:
         """获取最近的请求记录"""
-        return self.monitor.get_recent_requests(limit)
-    
-    def get_recent_errors(self, limit: int = 20) -> list:
+        return await self.monitor.get_recent_requests(limit)
+
+    async def get_recent_errors(self, limit: int = 20) -> list:
         """获取最近的错误记录"""
-        return self.monitor.get_recent_errors(limit)
-    
-    def reset_stats(self):
+        return await self.monitor.get_recent_errors(limit)
+
+    async def reset_stats(self):
         """重置统计信息"""
-        self.monitor.reset_stats()
+        await self.monitor.reset_stats()

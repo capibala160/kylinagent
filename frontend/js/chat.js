@@ -175,7 +175,7 @@ async function sendMessage(messageOverride = null, confirmed = false, elevated =
                 } else if (eventName === 'error') {
                     removeLoadingMessage(loadingId);
                     if (streamingDiv) { streamingDiv.remove(); streamingDiv = null; }
-                    addMessage('assistant', `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 错误: ${data.message || '未知错误'}`);
+                    addMessage('assistant', `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 错误: ${escapeHtml(data.message || '未知错误')}`);
                     isProcessing = false;
                     sendBtn.disabled = false;
                     return;
@@ -184,7 +184,7 @@ async function sendMessage(messageOverride = null, confirmed = false, elevated =
         }
     } catch (e) {
         removeLoadingMessage(loadingId);
-        addMessage('assistant', `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 请求失败: ${e.message}`);
+        addMessage('assistant', `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 请求失败: ${escapeHtml(e.message)}`);
     } finally {
         isProcessing = false;
         sendBtn.disabled = false;
@@ -434,10 +434,10 @@ async function submitPrivilegeRequest() {
         
         const requestId = reqRes.request_id;
         privilegeModal.classList.remove('active');
-        addMessage('assistant', `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="4"/><polyline points="12 7 12 12 15 15"/></svg> 权限申请已提交 (${requestId})\n理由：${reason}\n\n请等待管理员审批。`, {loading: false});
+        addMessage('assistant', `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="4"/><polyline points="12 7 12 12 15 15"/></svg> 权限申请已提交 (${escapeHtml(requestId)})\n理由：${escapeHtml(reason)}\n\n请等待管理员审批。`, {loading: false});
         
     } catch (e) {
-        addMessage('assistant', `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 权限申请失败: ${e.message}`);
+        addMessage('assistant', `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 权限申请失败: ${escapeHtml(e.message)}`);
         privilegeModal.classList.remove('active');
     } finally {
         document.getElementById('submitPrivilegeBtn').disabled = false;

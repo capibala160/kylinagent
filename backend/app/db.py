@@ -608,6 +608,56 @@ async def db_cleanup_expired_privilege_requests() -> int:
         return count
 
 
+async def db_get_approved_privilege_request_by_session(
+    session_id: str, requested_by: str
+) -> Optional[Dict]:
+    """获取指定会话下已审批且未过期的权限申请（按创建时间倒序取最新一条）"""
+    factory = await get_session_factory()
+    async with factory() as session:
+        result = await session.execute(
+            select(PrivilegeRequestModel).where(
+                PrivilegeRequestModel.session_id == session_id,
+                PrivilegeRequestModel.requested_by == requested_by,
+                PrivilegeRequestModel.status == "approved",
+                PrivilegeRequestModel.expires_at >= time.time(),
+            ).order_by(PrivilegeRequestModel.approved_at.desc())
+        )
+        r = result.scalar_one_or_none()
+        if r:
+            return {
+                "request_id": r.request_id,
+                "session_id": r.session_id,
+                "command": r.command,
+                "reason": r.reason,
+                "status": r.status,
+                "requested_by": r.requested_by,
+                "approved_by": r.approved_by,
+                "created_at": r.created_at,
+                "approved_at": r.approved_at,
+                "expires_at": r.expires_at,
+            }
+        return None
+
+
+async def db_consume_privilege_request(request_id: str) -> bool:
+    """将权限申请标记为已使用"""
+    factory = await get_session_factory()
+    async with factory() as session:
+        result = await session.execute(
+            select(PrivilegeRequestModel).where(
+                PrivilegeRequestModel.request_id == request_id,
+                PrivilegeRequestModel.status == "approved",
+            )
+        )
+        r = result.scalar_one_or_none()
+        if not r:
+            return False
+        r.status = "consumed"
+        r.expires_at = time.time()
+        await session.commit()
+        return True
+
+
 # ===== 验证码表 =====
 
 class VerificationCodeModel(Base):

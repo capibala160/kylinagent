@@ -43,7 +43,7 @@ class AuditConfig(BaseModel):
 
 class AuthConfig(BaseModel):
     session_ttl: int = 2592000  # 30天，单位秒（延长保持登录状态）
-    enable_dev_token: bool = True  # 是否允许开发Token降级
+    enable_dev_token: bool = False  # 是否允许开发Token降级（生产环境必须关闭）
     cookie_secure: bool = False  # Cookie 是否启用 secure（HTTPS 环境设为 True）
 
 

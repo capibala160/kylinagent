@@ -5,10 +5,11 @@
 """
 
 from typing import Optional
-from fastapi import APIRouter, Query, Depends, Request
+from fastapi import APIRouter, Query, Depends, Request, HTTPException
 from pydantic import BaseModel, Field
 
 from ..auth.session import session_auth
+from ..db import db_get_user
 from ..monitor import get_monitor
 
 router = APIRouter()
@@ -16,6 +17,16 @@ router = APIRouter()
 
 async def _get_current_user(request: Request) -> str:
     return await session_auth.verify(request)
+
+
+async def _require_admin(request: Request) -> str:
+    """仅允许管理员角色访问"""
+    user = await session_auth.verify(request)
+    user_info = await db_get_user(user)
+    role = user_info.get("role", "user") if user_info else "user"
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可执行此操作")
+    return user
 
 
 @router.get("/monitor/overview")
@@ -63,7 +74,7 @@ async def ratelimit_stats(user: str = Depends(_get_current_user)):
     返回各路径的限流配置和当前状态。
     """
     from ..main import rate_limit
-    stats = rate_limit.get_stats()
+    stats = await rate_limit.get_stats()
     return {
         "success": True,
         "data": stats,
@@ -71,14 +82,14 @@ async def ratelimit_stats(user: str = Depends(_get_current_user)):
 
 
 @router.post("/monitor/ratelimit/reset")
-async def ratelimit_reset(user: str = Depends(_get_current_user)):
+async def ratelimit_reset(user: str = Depends(_require_admin)):
     """
-    重置限流统计信息
+    重置限流统计信息（仅管理员）
     
     清零所有计数器，保留限流配置。
     """
     from ..main import rate_limit
-    rate_limit.reset_stats()
+    await rate_limit.reset_stats()
     return {
         "success": True,
         "message": "限流统计已重置",
@@ -95,7 +106,7 @@ async def request_stats(user: str = Depends(_get_current_user)):
     返回请求耗时、错误率、状态码分布等指标。
     """
     from ..main import request_monitor
-    stats = request_monitor.get_stats()
+    stats = await request_monitor.get_stats()
     return {
         "success": True,
         "data": stats,
@@ -113,7 +124,7 @@ async def recent_requests(
     返回最近 N 个请求的详细信息。
     """
     from ..main import request_monitor
-    requests = request_monitor.get_recent_requests(limit=limit)
+    requests = await request_monitor.get_recent_requests(limit=limit)
     return {
         "success": True,
         "total": len(requests),
@@ -132,7 +143,7 @@ async def recent_errors(
     返回最近 N 个错误请求的详细信息。
     """
     from ..main import request_monitor
-    errors = request_monitor.get_recent_errors(limit=limit)
+    errors = await request_monitor.get_recent_errors(limit=limit)
     return {
         "success": True,
         "total": len(errors),
@@ -141,14 +152,14 @@ async def recent_errors(
 
 
 @router.post("/monitor/requests/reset")
-async def request_stats_reset(user: str = Depends(_get_current_user)):
+async def request_stats_reset(user: str = Depends(_require_admin)):
     """
-    重置请求监控统计信息
+    重置请求监控统计信息（仅管理员）
     
     清零所有计数器和历史记录。
     """
     from ..main import request_monitor
-    request_monitor.reset_stats()
+    await request_monitor.reset_stats()
     return {
         "success": True,
         "message": "请求监控统计已重置",
@@ -171,13 +182,13 @@ async def monitor_dashboard(user: str = Depends(_get_current_user)):
     sys_data = await sys_monitor.get_overview()
     
     # 限流统计
-    ratelimit_data = rate_limit.get_stats()
+    ratelimit_data = await rate_limit.get_stats()
     
     # 请求监控
-    request_data = request_monitor.get_stats()
+    request_data = await request_monitor.get_stats()
     
     # 最近错误
-    recent_errors = request_monitor.get_recent_errors(limit=10)
+    recent_errors = await request_monitor.get_recent_errors(limit=10)
     
     return {
         "success": True,

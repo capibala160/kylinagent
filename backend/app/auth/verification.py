@@ -25,10 +25,36 @@ CODE_EXPIRY = 300  # 5 分钟
 SEND_INTERVAL = 60  # 1 分钟
 # 验证码长度
 CODE_LENGTH = 6
+# 同一目标验证码最大错误尝试次数
+MAX_FAILED_ATTEMPTS = 5
+# 错误尝试锁定时间（秒）
+FAILED_LOCKOUT_SECONDS = 900  # 15 分钟
 
 
 class VerificationManager:
     """验证码管理器"""
+
+    # 内存中记录校验失败时间戳 {(target, target_type, purpose): [timestamp, ...]}
+    _failed_attempts: Dict[str, List[float]] = {}
+
+    @classmethod
+    def _check_locked(cls, key: str) -> bool:
+        """检查目标是否因错误次数过多被临时锁定"""
+        now = time.time()
+        attempts = cls._failed_attempts.get(key, [])
+        # 只保留锁定窗口内的记录
+        attempts = [t for t in attempts if now - t < FAILED_LOCKOUT_SECONDS]
+        cls._failed_attempts[key] = attempts
+        return len(attempts) >= MAX_FAILED_ATTEMPTS
+
+    @classmethod
+    def _record_failure(cls, key: str):
+        """记录一次校验失败"""
+        now = time.time()
+        attempts = cls._failed_attempts.get(key, [])
+        attempts = [t for t in attempts if now - t < FAILED_LOCKOUT_SECONDS]
+        attempts.append(now)
+        cls._failed_attempts[key] = attempts
 
     @staticmethod
     def generate_code(length: int = CODE_LENGTH) -> str:
@@ -66,8 +92,9 @@ class VerificationManager:
         # 保存到数据库
         await db_create_verification_code(target, target_type, code, purpose, expires_at)
 
-        # 发送（实际发送由调用方处理，这里只返回验证码内容用于调试/日志）
-        logger.info(f"[验证码] {target_type}={target}, purpose={purpose}, code={code}")
+        # 发送（实际发送由调用方处理）
+        # 日志脱敏：不记录验证码明文，防止日志泄露
+        logger.info(f"[验证码] {target_type}={target}, purpose={purpose}, code=***")
 
         return {
             "success": True,
@@ -92,17 +119,30 @@ class VerificationManager:
         Returns:
             bool: 校验是否通过
         """
+        key = f"{target}:{target_type}:{purpose}"
+
+        # 防暴力破解：错误次数过多则锁定
+        if cls._check_locked(key):
+            logger.warning(f"[验证码] 目标 {target} 因错误尝试过多被临时锁定")
+            return False
+
         latest = await db_get_latest_verification_code(target, target_type, purpose)
         if not latest:
+            cls._record_failure(key)
             return False
 
         # 检查是否过期
         if time.time() > latest["expires_at"]:
+            cls._record_failure(key)
             return False
 
         # 检查是否匹配
         if latest["code"] != code:
+            cls._record_failure(key)
             return False
+
+        # 校验成功，清空失败记录
+        cls._failed_attempts.pop(key, None)
 
         # 标记为已使用
         if consume:

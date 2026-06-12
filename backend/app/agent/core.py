@@ -10,6 +10,10 @@ from ..mcp.tools import get_registry
 from ..mcp import MCPServer, MCPClient
 from ..security import SecurityGuard, PrivilegeExecutor
 from ..audit import AuditLogger, ReasoningChain, ChainNodeType
+from ..db import (
+    db_get_approved_privilege_request_by_session,
+    db_consume_privilege_request,
+)
 
 
 
@@ -46,31 +50,57 @@ class OpsAgent:
     # pending 确认超时时间（秒）
     PENDING_CONFIRM_TIMEOUT = 300
     
-    async def _execute_tool(self, tool_name: str, arguments: Dict[str, Any], elevated: bool = False):
+    async def _execute_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        elevated: bool = False,
+        session_id: str = "",
+        user: str = "",
+    ):
         """
         执行工具，通过 MCP 标准协议调用。
-        
+
         流程：Agent → MCPClient → MCPServer → ToolRegistry → 工具执行
         体现赛题"通过实现 MCP 协议"的设计要求。
-        
+
         对于 kill_process 等高风险操作，额外通过 PrivilegeExecutor
         进行最小权限执行，体现"安全审计多维Agent"设计。
-        
-        elevated=True 时，通过 sudo 以 root 权限执行（需先通过权限申请审批）。
+
+        elevated=True 时，通过 sudo 以 root 权限执行，但必须已存在
+        当前会话、当前用户、未过期的已审批权限申请，且执行后自动核销。
         """
         from ..mcp.schema import ToolCallResult, TextContent
-        
+
+        # 特权执行前必须校验已审批的权限申请
+        if elevated:
+            if not session_id or not user:
+                return ToolCallResult(
+                    content=[TextContent(type="text", text="安全限制: 特权执行缺少会话或用户信息")],
+                    isError=True,
+                    errorMessage="特权执行缺少会话或用户信息"
+                )
+            approved_req = await db_get_approved_privilege_request_by_session(session_id, user)
+            if not approved_req:
+                return ToolCallResult(
+                    content=[TextContent(type="text", text="安全限制: 不存在有效的已审批 root 权限申请，无法执行特权操作")],
+                    isError=True,
+                    errorMessage="不存在有效的已审批 root 权限申请"
+                )
+            # 核销权限申请，防止被重复利用
+            await db_consume_privilege_request(approved_req["request_id"])
+
         # kill_process 额外走 PrivilegeExecutor（最小权限执行）
         if tool_name == "kill_process":
             pid = arguments.get("pid")
             signal = arguments.get("signal", "SIGTERM")
             sig_map = {"SIGTERM": "-15", "SIGKILL": "-9", "SIGINT": "-2"}
             sig_flag = sig_map.get(signal, "-15")
-            
+
             try:
                 target_user = "root" if elevated else None
                 exec_result = self.executor.execute(f"kill {sig_flag} {pid}", as_user=target_user, timeout=5)
-                
+
                 if exec_result.get("success"):
                     return ToolCallResult(
                         content=[TextContent(type="text", text=exec_result.get("stdout", f"成功发送 {signal} 信号到进程 {pid}"))],
@@ -88,7 +118,7 @@ class OpsAgent:
                     isError=True,
                     errorMessage=str(e)
                 )
-        
+
         # 其他工具通过 MCP 标准协议调用
         return await self.mcp_client.call_tool(tool_name, arguments)
     
@@ -273,6 +303,7 @@ class OpsAgent:
                 cmd_safe, cmd_reason, cmd_detail = self.guard.validate_command(cmd_str, tool_name, arguments)
                 
                 risk_level = cmd_detail.get("risk_level", "safe")
+                risk_level_str = risk_level.value if hasattr(risk_level, "value") else str(risk_level).lower()
                 
                 chain.add_node(
                     ChainNodeType.SECURITY_CHECK,
@@ -283,7 +314,7 @@ class OpsAgent:
                 )
                 
                 # CRITICAL: 绝对阻断，不可逾越的红线
-                if not cmd_safe and risk_level == "critical":
+                if not cmd_safe and risk_level_str == "critical":
                     all_safe = False
                     self.audit.log_security_alert(
                         "command_blocked", cmd_str, cmd_reason, chain.chain_id
@@ -299,7 +330,7 @@ class OpsAgent:
                 
                 # HIGH/MEDIUM: 触发二次确认（赛题核心要求）
                 # LOW 风险已直接放行，不再挂起
-                if risk_level in ["high", "medium"]:
+                if risk_level_str in ["high", "medium"]:
                     needs_confirm = True
                     confirm_reason = cmd_reason
                     # 风险操作先挂起，等待用户确认后再执行
@@ -323,7 +354,9 @@ class OpsAgent:
                     continue
                 
                 exec_start = time.time()
-                result = await self._execute_tool(tool_name, arguments, elevated=elevated)
+                result = await self._execute_tool(
+                    tool_name, arguments, elevated=elevated, session_id=session_id, user=user
+                )
                 exec_duration = (time.time() - exec_start) * 1000
                 
                 chain.add_node(
@@ -567,17 +600,18 @@ class OpsAgent:
             cmd_str = f"{tool_name}({json.dumps(arguments)})"
             cmd_safe, cmd_reason, cmd_detail = self.guard.validate_command(cmd_str, tool_name, arguments)
             risk_level = cmd_detail.get("risk_level", "safe")
+            risk_level_str = risk_level.value if hasattr(risk_level, "value") else str(risk_level).lower()
             
             chain.add_node(
                 ChainNodeType.SECURITY_CHECK,
                 f"二次安全校验（已确认）: {tool_name}",
                 input_data={"command": cmd_str, "confirmed": True},
                 output_data=cmd_detail,
-                status="success" if (cmd_safe or risk_level in ["medium", "low"]) else "blocked"
+                status="success" if (cmd_safe or risk_level_str in ["medium", "low"]) else "blocked"
             )
             
             # CRITICAL 即使已确认也阻断（不可逾越的红线）
-            if not cmd_safe and risk_level == "critical":
+            if not cmd_safe and risk_level_str == "critical":
                 any_blocked = True
                 self.audit.log_security_alert(
                     "command_blocked_after_confirm", cmd_str, cmd_reason, chain.chain_id

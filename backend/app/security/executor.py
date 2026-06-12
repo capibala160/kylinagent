@@ -61,7 +61,7 @@ class PrivilegeExecutor:
         target_user = as_user or self.restricted_user
         
         # 安全检查
-        allowed, reason, check_result = self.guard.validate_command(command)
+        allowed, reason, check_result = self.guard.validate_command(command, tool_name=None, arguments=None)
         if not allowed:
             return {
                 "success": False,

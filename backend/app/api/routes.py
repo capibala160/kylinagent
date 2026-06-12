@@ -166,7 +166,7 @@ class ResetPasswordRequest(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., description="用户输入的消息")
+    message: str = Field(..., min_length=1, max_length=8192, description="用户输入的消息")
     session_id: Optional[str] = Field(None, description="会话 ID，不传则创建新会话")
     confirmed: bool = Field(False, description="是否已确认执行高危操作")
     elevated: bool = Field(False, description="是否使用已审批的 root 权限执行")
@@ -316,13 +316,14 @@ async def send_code(request: SendCodeRequest):
         sms_svc = get_sms_service()
         await sms_svc.send_verification_code(request.target, result["code"], purpose_cn)
 
-    # 始终返回验证码（开发/测试环境）
+    # 生产环境不再返回验证码，仅在开发/测试环境返回以便调试
     resp = {
         "success": True,
         "message": result["message"] + (" (邮件已发送)" if email_sent else " (邮件发送失败)"),
         "cooldown": result["cooldown"],
-        "code": result["code"],
     }
+    if os.environ.get("OPS_ENV", "").lower() in ("dev", "development", "test"):
+        resp["code"] = result["code"]
     return resp
 
 
@@ -459,7 +460,14 @@ async def chat(request: ChatRequest, user: str = Depends(get_current_user)):
     if not request.message or not request.message.strip():
         raise HTTPException(status_code=400, detail="消息不能为空")
 
-    session_id = request.session_id or str(uuid.uuid4())[:12]
+    session_id = request.session_id or str(uuid.uuid4())
+    
+    # 安全校验：指定了已有会话时，必须属于当前用户
+    if request.session_id:
+        db_session = await db_get_chat_session(session_id)
+        if db_session and db_session.get("username") != user:
+            raise HTTPException(status_code=403, detail="无权访问该会话")
+    
     session = session_manager.get_or_create(session_id)
 
     # 首次访问该会话时，从数据库恢复历史消息
@@ -518,7 +526,16 @@ async def chat_stream(request: ChatRequest, user: str = Depends(get_current_user
             yield _sse_event("error", {"message": "消息不能为空"})
         return StreamingResponse(error_stream(), media_type="text/event-stream")
 
-    session_id = request.session_id or str(uuid.uuid4())[:12]
+    session_id = request.session_id or str(uuid.uuid4())
+    
+    # 安全校验：指定了已有会话时，必须属于当前用户
+    if request.session_id:
+        db_session = await db_get_chat_session(session_id)
+        if db_session and db_session.get("username") != user:
+            async def error_stream():
+                yield _sse_event("error", {"message": "无权访问该会话"})
+            return StreamingResponse(error_stream(), media_type="text/event-stream")
+    
     session = session_manager.get_or_create(session_id)
 
     # 首次访问该会话时，从数据库恢复历史消息
@@ -946,10 +963,16 @@ async def cleanup_audit_logs(
     user: str = Depends(get_current_user)
 ):
     """
-    清理过期的审计日志
+    清理过期的审计日志（仅管理员可执行）
 
     删除指定天数之前的日志文件
     """
+    # 权限检查：仅 admin 可清理审计日志
+    user_info = await db_get_user(user)
+    role = user_info.get("role", "user") if user_info else "user"
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可清理审计日志")
+
     log_dir = audit_logger.log_dir
     cutoff_time = time.time() - days * 86400
     cleaned_count = 0
@@ -1247,6 +1270,7 @@ async def get_agent_config(user: str = Depends(get_current_user)):
 async def mcp_endpoint(request: Request):
     """
     MCP (Model Context Protocol) 标准 JSON-RPC 2.0 端点。
+    需要登录后才能调用。
 
     支持方法：
     - `initialize`: 协议握手，返回服务端能力和信息
@@ -1280,6 +1304,19 @@ async def mcp_endpoint(request: Request):
     }
     ```
     """
+    # 安全校验：MCP 端点必须登录
+    try:
+        user = await session_auth.verify(request)
+    except HTTPException:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32001, "message": "Unauthorized: 请先登录"},
+            },
+        )
+
     try:
         body = await request.json()
     except Exception:

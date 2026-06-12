@@ -3,6 +3,7 @@
 基于 IP 和用户的请求频率限制，防止服务过载和滥用。
 """
 
+import asyncio
 import time
 from typing import Dict, Optional, Callable
 from collections import defaultdict
@@ -38,12 +39,14 @@ class RateLimiter:
             "limited_ips": set(),
             "limited_users": set(),
         }
+        # 保护共享状态的异步锁
+        self._lock = asyncio.Lock()
     
     def _clean_window(self, window: list, now: float, window_size: float) -> list:
         """清理过期的时间戳"""
         return [ts for ts in window if now - ts < window_size]
     
-    def check_rate_limit(
+    async def check_rate_limit(
         self,
         key: str,
         now: float,
@@ -58,92 +61,97 @@ class RateLimiter:
         Returns:
             (是否允许, 原因, 详细信息)
         """
-        self._stats["total_requests"] += 1
-        
-        # 清理过期窗口
-        self._minute_windows[key] = self._clean_window(
-            self._minute_windows[key], now, 60.0
-        )
-        self._hour_windows[key] = self._clean_window(
-            self._hour_windows[key], now, 3600.0
-        )
-        
-        minute_count = len(self._minute_windows[key])
-        hour_count = len(self._hour_windows[key])
-        
-        # 检查分钟限流
-        if minute_count >= self.requests_per_minute:
-            self._stats["limited_requests"] += 1
-            self._stats["limited_ips"].add(key)
-            retry_after = 60 - (now - self._minute_windows[key][0])
-            return False, "rate_limit_minute", {
-                "limit": self.requests_per_minute,
-                "current": minute_count,
-                "window": "minute",
-                "retry_after": max(1, int(retry_after)),
+        async with self._lock:
+            self._stats["total_requests"] += 1
+
+            # 清理过期窗口
+            self._minute_windows[key] = self._clean_window(
+                self._minute_windows[key], now, 60.0
+            )
+            self._hour_windows[key] = self._clean_window(
+                self._hour_windows[key], now, 3600.0
+            )
+
+            minute_count = len(self._minute_windows[key])
+            hour_count = len(self._hour_windows[key])
+
+            # 检查分钟限流
+            if minute_count >= self.requests_per_minute:
+                self._stats["limited_requests"] += 1
+                self._stats["limited_ips"].add(key)
+                retry_after = 60 - (now - self._minute_windows[key][0])
+                return False, "rate_limit_minute", {
+                    "limit": self.requests_per_minute,
+                    "current": minute_count,
+                    "window": "minute",
+                    "retry_after": max(1, int(retry_after)),
+                }
+
+            # 检查小时限流
+            if hour_count >= self.requests_per_hour:
+                self._stats["limited_requests"] += 1
+                self._stats["limited_ips"].add(key)
+                retry_after = 3600 - (now - self._hour_windows[key][0])
+                return False, "rate_limit_hour", {
+                    "limit": self.requests_per_hour,
+                    "current": hour_count,
+                    "window": "hour",
+                    "retry_after": max(1, int(retry_after)),
+                }
+
+            # 检查突发限流（短时间内大量请求）
+            burst_window = 5.0  # 5秒内的突发请求
+            burst_count = sum(1 for ts in self._minute_windows[key] if now - ts < burst_window)
+            if burst_count >= self.burst_size:
+                self._stats["limited_requests"] += 1
+                self._stats["limited_ips"].add(key)
+                return False, "rate_limit_burst", {
+                    "limit": self.burst_size,
+                    "current": burst_count,
+                    "window": "burst",
+                    "retry_after": 5,
+                }
+
+            # 记录请求时间戳
+            self._minute_windows[key].append(now)
+            self._hour_windows[key].append(now)
+
+            return True, None, {
+                "minute_remaining": self.requests_per_minute - minute_count - 1,
+                "hour_remaining": self.requests_per_hour - hour_count - 1,
             }
-        
-        # 检查小时限流
-        if hour_count >= self.requests_per_hour:
-            self._stats["limited_requests"] += 1
-            self._stats["limited_ips"].add(key)
-            retry_after = 3600 - (now - self._hour_windows[key][0])
-            return False, "rate_limit_hour", {
-                "limit": self.requests_per_hour,
-                "current": hour_count,
-                "window": "hour",
-                "retry_after": max(1, int(retry_after)),
-            }
-        
-        # 检查突发限流（短时间内大量请求）
-        burst_window = 5.0  # 5秒内的突发请求
-        burst_count = sum(1 for ts in self._minute_windows[key] if now - ts < burst_window)
-        if burst_count >= self.burst_size:
-            self._stats["limited_requests"] += 1
-            self._stats["limited_ips"].add(key)
-            return False, "rate_limit_burst", {
-                "limit": self.burst_size,
-                "current": burst_count,
-                "window": "burst",
-                "retry_after": 5,
-            }
-        
-        # 记录请求时间戳
-        self._minute_windows[key].append(now)
-        self._hour_windows[key].append(now)
-        
-        return True, None, {
-            "minute_remaining": self.requests_per_minute - minute_count - 1,
-            "hour_remaining": self.requests_per_hour - hour_count - 1,
-        }
     
-    def get_stats(self) -> Dict:
+    async def get_stats(self) -> Dict:
         """获取限流统计信息"""
-        return {
-            "total_requests": self._stats["total_requests"],
-            "limited_requests": self._stats["limited_requests"],
-            "limited_rate": round(
-                100.0 * self._stats["limited_requests"] / self._stats["total_requests"], 2
-            ) if self._stats["total_requests"] > 0 else 0,
-            "limited_ips_count": len(self._stats["limited_ips"]),
-            "limited_users_count": len(self._stats["limited_users"]),
-            "active_keys_minute": len(self._minute_windows),
-            "active_keys_hour": len(self._hour_windows),
-            "config": {
-                "requests_per_minute": self.requests_per_minute,
-                "requests_per_hour": self.requests_per_hour,
-                "burst_size": self.burst_size,
+        async with self._lock:
+            return {
+                "total_requests": self._stats["total_requests"],
+                "limited_requests": self._stats["limited_requests"],
+                "limited_rate": round(
+                    100.0 * self._stats["limited_requests"] / self._stats["total_requests"], 2
+                ) if self._stats["total_requests"] > 0 else 0,
+                "limited_ips_count": len(self._stats["limited_ips"]),
+                "limited_users_count": len(self._stats["limited_users"]),
+                "active_keys_minute": len(self._minute_windows),
+                "active_keys_hour": len(self._hour_windows),
+                "config": {
+                    "requests_per_minute": self.requests_per_minute,
+                    "requests_per_hour": self.requests_per_hour,
+                    "burst_size": self.burst_size,
+                }
             }
-        }
-    
-    def reset_stats(self):
+
+    async def reset_stats(self):
         """重置统计信息"""
-        self._stats = {
-            "total_requests": 0,
-            "limited_requests": 0,
-            "limited_ips": set(),
-            "limited_users": set(),
-        }
+        async with self._lock:
+            self._stats = {
+                "total_requests": 0,
+                "limited_requests": 0,
+                "limited_ips": set(),
+                "limited_users": set(),
+            }
+            self._minute_windows.clear()
+            self._hour_windows.clear()
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -246,7 +254,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         now = time.time()
         
         # 检查限流
-        allowed, reason, details = limiter.check_rate_limit(key, now)
+        allowed, reason, details = await limiter.check_rate_limit(key, now)
         
         if not allowed:
             # 返回 429 Too Many Requests
@@ -272,18 +280,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         
         return response
     
-    def get_stats(self) -> Dict:
+    async def get_stats(self) -> Dict:
         """获取所有限流器的统计信息"""
         stats = {
-            "default": self._default_limiter.get_stats(),
+            "default": await self._default_limiter.get_stats(),
             "paths": {},
         }
         for path, limiter in self._limiters.items():
-            stats["paths"][path] = limiter.get_stats()
+            stats["paths"][path] = await limiter.get_stats()
         return stats
-    
-    def reset_stats(self):
+
+    async def reset_stats(self):
         """重置所有限流器的统计信息"""
-        self._default_limiter.reset_stats()
+        await self._default_limiter.reset_stats()
         for limiter in self._limiters.values():
-            limiter.reset_stats()
+            await limiter.reset_stats()

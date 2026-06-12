@@ -1,5 +1,6 @@
-import subprocess
+import fnmatch
 import os
+import subprocess
 import time
 from typing import Any, Dict, Tuple
 from .base import BaseTool, register_tool
@@ -20,13 +21,19 @@ class ReadFileTool(BaseTool):
             "default": 200
         }
     }
-    
+
     # 敏感文件禁止读取（支持路径遍历防护后的匹配）
     SENSITIVE_PATHS = {
         "/etc/shadow", "/etc/gshadow", "/etc/passwd", "/etc/passwd-", "/etc/shadow-",
-        "/etc/ssh/sshd_config", "/etc/sudoers",
+        "/etc/ssh/sshd_config", "/etc/sudoers", "/etc/sudoers.d",
     }
-    
+
+    # 禁止读取的目录前缀
+    FORBIDDEN_PREFIXES = (
+        "/proc/", "/sys/", "/dev/", "/boot/", "/etc/", "/root/", "/var/lib/",
+        "/run/secrets/", "/home/*/.ssh/",
+    )
+
     def _resolve_path(self, path: str) -> str:
         """解析并规范化路径，防止路径遍历攻击"""
         # 先展开用户目录
@@ -35,21 +42,25 @@ class ReadFileTool(BaseTool):
         abs_path = os.path.abspath(path)
         real_path = os.path.realpath(abs_path)
         return real_path
-    
-    def _is_path_safe(self, path: str) -> bool:
+
+    def _is_path_safe(self, path: str) -> Tuple[bool, str]:
         """检查路径是否安全（无路径遍历、非敏感文件）"""
         real_path = self._resolve_path(path)
-        
+
         # 检查是否为敏感文件
         if real_path in self.SENSITIVE_PATHS:
-            return False
-        
-        # 检查是否在 /proc /sys 等特殊目录下
-        for dangerous_prefix in ["/proc/", "/sys/"]:
-            if real_path.startswith(dangerous_prefix):
-                return False
-        
-        return True
+            return False, f"禁止访问敏感文件: {real_path}"
+
+        # 检查是否在禁止目录下
+        for prefix in self.FORBIDDEN_PREFIXES:
+            if prefix.endswith("*/"):
+                # 通配 home 子目录匹配
+                if fnmatch.fnmatch(real_path, prefix[:-1] + "*"):
+                    return False, f"禁止访问目录: {real_path}"
+            elif real_path.startswith(prefix) or real_path == prefix.rstrip("/"):
+                return False, f"禁止访问目录: {real_path}"
+
+        return True, ""
     
     async def execute(self, arguments: Dict[str, Any]) -> ToolCallResult:
         path = arguments.get("path")
@@ -62,10 +73,10 @@ class ReadFileTool(BaseTool):
             )
         
         # 路径安全校验
-        if not self._is_path_safe(path):
-            real_path = self._resolve_path(path)
+        safe, reason = self._is_path_safe(path)
+        if not safe:
             return ToolCallResult(
-                content=[TextContent(type="text", text=f"安全限制: 禁止访问路径 {real_path}")],
+                content=[TextContent(type="text", text=f"安全限制: {reason}")],
                 isError=True
             )
         
@@ -110,25 +121,38 @@ class ListDirectoryTool(BaseTool):
             "default": "."
         }
     }
-    
-    # 禁止访问的敏感目录
-    FORBIDDEN_DIRS = {"/etc/ssh", "/etc/sudoers.d", "/root", "/var/spool/cron"}
-    
+
+    # 禁止访问的敏感目录前缀
+    FORBIDDEN_DIRS = {
+        "/etc", "/root", "/var/spool/cron", "/var/lib",
+        "/proc", "/sys", "/dev", "/boot",
+        "/run/secrets", "/home/*/.ssh",
+    }
+
     def _resolve_path(self, path: str) -> str:
         path = os.path.expanduser(path)
         return os.path.realpath(os.path.abspath(path))
-    
+
+    def _is_path_safe(self, real_path: str) -> Tuple[bool, str]:
+        for forbidden in self.FORBIDDEN_DIRS:
+            if forbidden.endswith("*/"):
+                if fnmatch.fnmatch(real_path, forbidden[:-1] + "*"):
+                    return False, f"禁止访问目录: {real_path}"
+            elif real_path == forbidden or real_path.startswith(forbidden + "/"):
+                return False, f"禁止访问目录: {real_path}"
+        return True, ""
+
     async def execute(self, arguments: Dict[str, Any]) -> ToolCallResult:
         path = arguments.get("path", ".")
         real_path = self._resolve_path(path)
-        
+
         # 路径安全检查
-        for forbidden in self.FORBIDDEN_DIRS:
-            if real_path.startswith(forbidden):
-                return ToolCallResult(
-                    content=[TextContent(type="text", text=f"安全限制: 禁止访问目录 {real_path}")],
-                    isError=True
-                )
+        safe, reason = self._is_path_safe(real_path)
+        if not safe:
+            return ToolCallResult(
+                content=[TextContent(type="text", text=f"安全限制: {reason}")],
+                isError=True
+            )
         
         if not os.path.exists(real_path):
             return ToolCallResult(
@@ -208,14 +232,29 @@ class SearchLogTool(BaseTool):
                     )
                 output = result.stdout if result.returncode in [0, 1] else result.stderr
             else:
-                # 文件搜索
-                if not os.path.exists(source):
+                # 文件搜索：仅允许在 /var/log 或 /tmp 目录下搜索，防止任意文件读取
+                real_source = os.path.realpath(os.path.abspath(os.path.expanduser(source)))
+                allowed_roots = ("/var/log/", "/tmp/")
+                if not any(
+                    real_source.startswith(root) or real_source == root.rstrip("/")
+                    for root in allowed_roots
+                ):
                     return ToolCallResult(
-                        content=[TextContent(type="text", text=f"文件不存在: {source}")],
+                        content=[TextContent(type="text", text=f"安全限制: 仅允许搜索 /var/log 或 /tmp 下的日志文件")],
+                        isError=True
+                    )
+                if not os.path.exists(real_source):
+                    return ToolCallResult(
+                        content=[TextContent(type="text", text=f"文件不存在: {real_source}")],
+                        isError=True
+                    )
+                if not os.path.isfile(real_source):
+                    return ToolCallResult(
+                        content=[TextContent(type="text", text=f"路径不是文件: {real_source}")],
                         isError=True
                     )
                 result = subprocess.run(
-                    ["grep", "-n", keyword, source],
+                    ["grep", "-n", "--", keyword, real_source],
                     capture_output=True, text=True, timeout=30
                 )
                 lines = result.stdout.strip().split("\n")[:limit]
@@ -301,8 +340,14 @@ class CleanLogsTool(BaseTool):
         "/var/log/syslog", "/var/log/kern.log", "/var/log/auth.log",
     }
     
+    # 允许清理的根目录白名单（只允许 /var/log，防止误删业务数据）
+    ALLOWED_ROOTS = {"/var/log"}
+
     # 禁止清理的根目录（防止误删）
-    FORBIDDEN_ROOTS = {"/etc", "/boot", "/proc", "/sys", "/dev", "/bin", "/sbin", "/lib", "/lib64"}
+    FORBIDDEN_ROOTS = {
+        "/etc", "/boot", "/proc", "/sys", "/dev", "/bin", "/sbin", "/lib", "/lib64",
+        "/home", "/data", "/opt", "/srv", "/var/www", "/var/lib", "/usr",
+    }
     
     def _is_critical_log(self, real_path: str) -> bool:
         """检查是否为系统关键日志"""
@@ -346,6 +391,17 @@ class CleanLogsTool(BaseTool):
                 errorMessage="路径不是目录"
             )
         
+        # 白名单优先：只允许在 /var/log 下执行清理
+        if not any(
+            real_path.startswith(root + "/") or real_path == root
+            for root in self.ALLOWED_ROOTS
+        ):
+            return ToolCallResult(
+                content=[TextContent(type="text", text=f"安全限制: 仅允许在 /var/log 下执行日志清理")],
+                isError=True,
+                errorMessage="仅允许在 /var/log 下执行日志清理"
+            )
+
         if self._is_in_forbidden_root(real_path):
             return ToolCallResult(
                 content=[TextContent(type="text", text=f"安全限制: 禁止在 {real_path} 下执行清理操作")],
@@ -466,43 +522,45 @@ class SafeRemoveTool(BaseTool):
         "/bin", "/sbin", "/lib", "/lib64",
         "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib64",
         "/", "/home", "/root", "/var", "/tmp",
+        "/data", "/opt", "/srv", "/var/www", "/var/lib", "/usr",
     }
-    
+
     # 禁止删除的关键文件
     CRITICAL_FILES = {
         "/etc/passwd", "/etc/shadow", "/etc/group", "/etc/gshadow",
         "/etc/fstab", "/etc/hosts", "/etc/resolv.conf",
         "/etc/ssh/sshd_config", "/etc/sudoers",
     }
-    
+
     def _resolve_path(self, path: str) -> str:
         path = os.path.expanduser(path)
         return os.path.realpath(os.path.abspath(path))
-    
+
     def _is_forbidden(self, real_path: str) -> Tuple[bool, str]:
         """检查路径是否在禁止删除列表中"""
         for forbidden in self.FORBIDDEN_PATHS:
             if real_path.startswith(forbidden + "/") or real_path == forbidden:
                 return True, f"禁止删除系统关键路径: {forbidden}"
-        
+
         if real_path in self.CRITICAL_FILES:
             return True, f"禁止删除关键系统文件: {real_path}"
-        
+
         return False, ""
-    
+
     async def execute(self, arguments: Dict[str, Any]) -> ToolCallResult:
         path = arguments.get("path")
-        recursive = arguments.get("recursive", False)
-        
+        # recursive 参数已废弃：安全删除工具只允许删除文件，禁止删除目录
+        _ = arguments.get("recursive", False)
+
         if not path:
             return ToolCallResult(
                 content=[TextContent(type="text", text="错误: 必须提供 path 参数")],
                 isError=True,
                 errorMessage="缺少 path 参数"
             )
-        
+
         real_path = self._resolve_path(path)
-        
+
         # 路径遍历防护 + 黑名单校验
         forbidden, reason = self._is_forbidden(real_path)
         if forbidden:
@@ -511,32 +569,26 @@ class SafeRemoveTool(BaseTool):
                 isError=True,
                 errorMessage=reason
             )
-        
+
         if not os.path.exists(real_path):
             return ToolCallResult(
                 content=[TextContent(type="text", text=f"路径不存在: {real_path}")],
                 isError=True,
                 errorMessage="路径不存在"
             )
-        
-        is_dir = os.path.isdir(real_path)
-        
-        if is_dir and not recursive:
+
+        # 安全策略：仅允许删除文件，禁止删除目录
+        if os.path.isdir(real_path):
             return ToolCallResult(
-                content=[TextContent(type="text", text=f"{real_path} 是目录，但未设置 recursive=True。请确认后再删除。")],
+                content=[TextContent(type="text", text=f"🛡️ 安全拦截: 禁止删除目录 {real_path}，仅允许删除文件")],
                 isError=True,
-                errorMessage="目录未设置 recursive=True"
+                errorMessage="禁止删除目录"
             )
-        
+
         try:
-            if is_dir:
-                import shutil
-                shutil.rmtree(real_path)
-                text = f"已递归删除目录: {real_path}"
-            else:
-                os.remove(real_path)
-                text = f"已删除文件: {real_path}"
-            
+            os.remove(real_path)
+            text = f"已删除文件: {real_path}"
+
             return ToolCallResult(content=[TextContent(type="text", text=text)])
         except PermissionError:
             return ToolCallResult(

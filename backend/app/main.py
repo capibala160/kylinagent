@@ -36,6 +36,8 @@ _rate_limit_config = dict(
     default_requests_per_hour=1000,
     default_burst_size=10,
 )
+
+# 创建单例，同时用于中间件注册和监控 API 引用
 rate_limit = RateLimitMiddleware(app, **_rate_limit_config)
 app.add_middleware(RateLimitMiddleware, **_rate_limit_config)
 

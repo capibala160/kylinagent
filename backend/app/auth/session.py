@@ -4,12 +4,15 @@
 生产环境建议迁移到 PostgreSQL/MySQL 以支持多实例横向扩展。
 """
 
+import logging
 import os
 import secrets
 import time
 import bcrypt
 from typing import Dict, Optional
 from fastapi import Request, HTTPException
+
+logger = logging.getLogger(__name__)
 
 from ..db import (
     init_db,
@@ -229,11 +232,22 @@ class SessionAuth:
         return self._verify_password_hash(password, user["password_hash"])
 
     async def init_default_user(self):
-        """初始化默认管理员账号（如果不存在）"""
+        """初始化默认管理员账号（如果不存在）
+
+        安全要求：必须通过环境变量 OPS_ADMIN_PASS 设置管理员密码。
+        未配置时不会创建默认管理员，避免使用硬编码弱口令被攻击者利用。
+        """
         await self._ensure_db()
         env_user = os.environ.get("OPS_ADMIN_USER", "opsadmin")
-        env_pass = os.environ.get("OPS_ADMIN_PASS", "KylinOps@2024")
-        
+        env_pass = os.environ.get("OPS_ADMIN_PASS", "")
+
+        if not env_pass:
+            logger.warning(
+                "未配置 OPS_ADMIN_PASS 环境变量，跳过创建默认管理员账号。"
+                "请在首次部署前通过环境变量设置强密码。"
+            )
+            return
+
         if not await db_user_exists(env_user):
             password_hash = self._hash_password(env_pass)
             await db_create_user(env_user, password_hash, role="admin")
