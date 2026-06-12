@@ -40,8 +40,8 @@ DEV_API_TOKEN = _DEV_API_TOKEN_RAW if _DEV_API_TOKEN_RAW.strip() else None
 class SessionAuth:
     """基于 SQLite 的 Session 管理器"""
 
-    # Session 有效期：30 天（与 cookie max_age 保持一致）
-    SESSION_TTL = 3600 * 24 * 30
+    # Session 有效期：24 小时（与 cookie max_age 保持一致）
+    SESSION_TTL = 3600 * 24
 
     def __init__(self):
         # 内存缓存（减少数据库查询）

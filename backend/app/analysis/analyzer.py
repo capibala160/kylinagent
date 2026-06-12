@@ -1,6 +1,8 @@
 """根因分析器入口——协调规则引擎与 LLM 增强分析"""
 
 import json
+import os
+import re
 from typing import Any, Dict, List, Optional
 
 from .models import AnalysisResult, DiagnosisReport, Severity
@@ -37,10 +39,37 @@ class RootCauseAnalyzer:
 
     async def diagnose_disk(self, mountpoint: str = "/") -> AnalysisResult:
         """对指定磁盘分区进行根因诊断"""
+        # 参数校验：挂载点必须是合法绝对路径且为真实目录
+        if not mountpoint or not mountpoint.startswith("/"):
+            return AnalysisResult(
+                category="disk",
+                is_anomaly=True,
+                severity=Severity.HIGH,
+                root_causes=[],
+                summary="挂载点参数不合法：必须为绝对路径",
+            )
+        if not re.match(r"^[/a-zA-Z0-9_.-]+$", mountpoint):
+            return AnalysisResult(
+                category="disk",
+                is_anomaly=True,
+                severity=Severity.HIGH,
+                root_causes=[],
+                summary="挂载点参数包含非法字符",
+            )
+        real_mount = os.path.realpath(mountpoint)
+        if not os.path.isdir(real_mount):
+            return AnalysisResult(
+                category="disk",
+                is_anomaly=True,
+                severity=Severity.HIGH,
+                root_causes=[],
+                summary=f"挂载点不存在或不是目录: {real_mount}",
+            )
+
         df = _run_cmd(["df", "-h"])
-        du = _run_cmd(["du", "-h", "--max-depth=2", mountpoint], timeout=30)
+        du = _run_cmd(["du", "-h", "--max-depth=2", "--", real_mount], timeout=30)
         large = _run_cmd(
-            ["find", mountpoint, "-type", "f", "-size", "+50M", "-exec", "ls", "-lh", "{}", "+"],
+            ["find", "--", real_mount, "-type", "f", "-size", "+50M", "-exec", "ls", "-lh", "{}", "+"],
             timeout=30,
         )
         return self.disk_analyzer.analyze(df, du, large)
@@ -72,9 +101,26 @@ class RootCauseAnalyzer:
 
     async def diagnose_service_log(self, service_name: str = "") -> AnalysisResult:
         """对指定服务日志进行根因诊断"""
+        # 参数校验：服务名必须是合法 systemd 服务名
         if service_name:
+            if not re.match(r"^[a-zA-Z0-9_.-]+$", service_name):
+                return AnalysisResult(
+                    category="service_log",
+                    is_anomaly=True,
+                    severity=Severity.HIGH,
+                    root_causes=[],
+                    summary="服务名包含非法字符",
+                )
+            if service_name.startswith("-"):
+                return AnalysisResult(
+                    category="service_log",
+                    is_anomaly=True,
+                    severity=Severity.HIGH,
+                    root_causes=[],
+                    summary="服务名不能以 '-' 开头",
+                )
             log = _run_cmd(
-                ["journalctl", "-u", service_name, "--no-pager", "-n", "200"],
+                ["journalctl", "-u", "--", service_name, "--no-pager", "-n", "200"],
                 timeout=15,
             )
         else:

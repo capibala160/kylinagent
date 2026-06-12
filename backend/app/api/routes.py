@@ -17,6 +17,7 @@ from ..auth.email import get_email_service
 from ..config import get_config
 from ..mcp import MCPServer
 from ..mcp.schema import MCPRequest
+from ..security import SecurityGuard
 from sqlalchemy import select
 from ..db import (
     db_get_chat_messages,
@@ -104,6 +105,12 @@ async def get_current_user_with_role(request: Request) -> Dict[str, str]:
     user = await db_get_user(username)
     role = user.get("role", "user") if user else "user"
     return {"username": username, "role": role}
+
+
+async def _get_user_role(user: str) -> str:
+    """获取用户角色"""
+    user_info = await db_get_user(user)
+    return user_info.get("role", "user") if user_info else "user"
 
 
 # ========== 请求/响应模型 ==========
@@ -748,8 +755,14 @@ async def query_audit_chains(
     offset: int = Query(0, ge=0),
     user: str = Depends(get_current_user)
 ):
-    """查询审计链路记录"""
+    """查询审计链路记录
+
+    普通用户只能查看自己的链路；管理员可查看全部。
+    """
+    role = await _get_user_role(user)
     chains = audit_logger.query_chains(status=status, limit=limit + offset)
+    if role != "admin":
+        chains = [c for c in chains if c.get("user") == user]
     return {
         "total": len(chains),
         "offset": offset,
@@ -764,6 +777,9 @@ async def get_audit_chain(chain_id: str, user: str = Depends(get_current_user)):
     chain = audit_logger.get_chain_by_id(chain_id)
     if not chain:
         raise HTTPException(status_code=404, detail="链路记录不存在")
+    role = await _get_user_role(user)
+    if role != "admin" and chain.get("user") != user:
+        raise HTTPException(status_code=403, detail="无权查看该链路记录")
     return chain
 
 
@@ -773,10 +789,13 @@ async def get_audit_stats(
     user: str = Depends(get_current_user)
 ):
     """
-    获取审计日志统计分析
+    获取审计日志统计分析（仅管理员）
 
     返回多维度统计：状态分布、时间趋势、工具使用、风险级别、拦截原因、耗时分布等
     """
+    role = await _get_user_role(user)
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可查看审计统计")
     stats = audit_logger.get_statistics(days=days)
     return {
         "success": True,
@@ -794,11 +813,12 @@ async def query_audit_events(
     """
     查询审计事件日志
 
-    返回系统事件、认证事件、权限事件等记录
+    普通用户只能查看与自己相关的事件；管理员可查看全部。
     """
+    role = await _get_user_role(user)
     events = []
     log_dir = audit_logger.log_dir
-    
+
     for file in sorted(log_dir.glob("events_*.jsonl"), reverse=True):
         with open(file, "r", encoding="utf-8") as f:
             for line in f:
@@ -811,6 +831,11 @@ async def query_audit_events(
                         continue
                     if level and event.get("level") != level.upper():
                         continue
+                    if role != "admin":
+                        details = event.get("details", {})
+                        event_user = details.get("username") or details.get("user") or details.get("requested_by")
+                        if event_user != user:
+                            continue
                     events.append(event)
                     if len(events) >= limit:
                         break
@@ -818,7 +843,7 @@ async def query_audit_events(
                     continue
         if len(events) >= limit:
             break
-    
+
     return {
         "success": True,
         "total": len(events),
@@ -835,11 +860,12 @@ async def query_audit_alerts(
     """
     查询安全告警记录
 
-    返回安全拦截、认证失败、权限提升等告警事件
+    普通用户只能查看与自己相关的告警；管理员可查看全部。
     """
+    role = await _get_user_role(user)
     events = []
     log_dir = audit_logger.log_dir
-    
+
     for file in sorted(log_dir.glob("events_*.jsonl"), reverse=True):
         with open(file, "r", encoding="utf-8") as f:
             for line in f:
@@ -852,6 +878,11 @@ async def query_audit_alerts(
                         continue
                     if alert_type and event.get("details", {}).get("alert_type") != alert_type:
                         continue
+                    if role != "admin":
+                        details = event.get("details", {})
+                        event_user = details.get("username") or details.get("user") or details.get("requested_by")
+                        if event_user != user:
+                            continue
                     events.append(event)
                     if len(events) >= limit:
                         break
@@ -859,7 +890,7 @@ async def query_audit_alerts(
                     continue
         if len(events) >= limit:
             break
-    
+
     return {
         "success": True,
         "total": len(events),
@@ -877,11 +908,16 @@ async def query_audit_auth(
     """
     查询认证事件记录
 
-    返回登录、登出、认证失败等事件
+    普通用户只能查看自己的认证事件；管理员可查看全部。
     """
+    role = await _get_user_role(user)
+    # 非管理员强制只能查自己的认证事件
+    if role != "admin":
+        username = user
+
     events = []
     log_dir = audit_logger.log_dir
-    
+
     for file in sorted(log_dir.glob("events_*.jsonl"), reverse=True):
         with open(file, "r", encoding="utf-8") as f:
             for line in f:
@@ -904,7 +940,7 @@ async def query_audit_auth(
                     continue
         if len(events) >= limit:
             break
-    
+
     return {
         "success": True,
         "total": len(events),
@@ -922,11 +958,16 @@ async def query_audit_privilege(
     """
     查询权限操作事件记录
 
-    返回权限申请、批准、拒绝等事件
+    普通用户只能查看自己的权限事件；管理员可查看全部。
     """
+    role = await _get_user_role(user)
+    # 非管理员强制只能查自己的权限事件
+    if role != "admin":
+        requested_by = user
+
     events = []
     log_dir = audit_logger.log_dir
-    
+
     for file in sorted(log_dir.glob("events_*.jsonl"), reverse=True):
         with open(file, "r", encoding="utf-8") as f:
             for line in f:
@@ -949,7 +990,7 @@ async def query_audit_privilege(
                     continue
         if len(events) >= limit:
             break
-    
+
     return {
         "success": True,
         "total": len(events),
@@ -1006,18 +1047,22 @@ async def export_audit_logs(
     """
     导出审计日志
 
-    支持 JSON/CSV 格式下载，可按时间范围和状态过滤
+    普通用户只能导出自己的审计链路；管理员可导出全部。
+    支持 JSON/CSV 格式下载，可按时间范围和状态过滤。
     """
     from starlette.responses import StreamingResponse as StarletteStreamingResponse
     import csv
     import io
 
+    role = await _get_user_role(user)
     chains = audit_logger.query_chains(
         start_time=start_time,
         end_time=end_time,
         status=status,
         limit=limit
     )
+    if role != "admin":
+        chains = [c for c in chains if c.get("user") == user]
 
     if not chains:
         raise HTTPException(status_code=404, detail="未找到符合条件的审计日志")
@@ -1091,150 +1136,90 @@ async def ping():
 @router.get("/health")
 async def health_check():
     """健康检查接口（公开访问，无需认证）
-    
-    返回系统各组件的健康状态，包括：
-    - 服务基础信息
-    - LLM 服务连接状态
-    - MCP 工具注册状态
-    - 数据库连接状态
-    - 安全规则加载状态
-    - 中间件状态
+
+    仅返回最小化的健康状态，避免泄露 LLM 配置、工具列表、安全规则数量、
+    审计目录等敏感信息给未认证用户。
     """
     config = get_config()
-    results = {
-        "status": "healthy",
-        "agent_name": config.agent.name,
-        "version": config.agent.version,
-        "timestamp": time.time(),
-        "datetime": datetime.now().isoformat(),
-        "components": {}
-    }
-    
+    start_ts = time.time()
+    status = "healthy"
+    components: Dict[str, str] = {}
+
     # 1. MCP 工具注册检查
     try:
         from ..mcp.tools import get_registry
         registry = get_registry()
-        tools = registry.list_tools()
-        results["components"]["mcp_tools"] = {
-            "status": "healthy",
-            "tools_count": len(tools),
-            "tools": [t.name for t in tools]
-        }
+        registry.list_tools()
+        components["mcp_tools"] = "healthy"
     except Exception as e:
-        results["status"] = "degraded"
-        results["components"]["mcp_tools"] = {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-    
+        status = "degraded"
+        components["mcp_tools"] = "unhealthy"
+
     # 2. LLM 服务检查
     try:
         from ..llm.client import get_llm_client
         llm_client = get_llm_client()
-        llm_check = await llm_client.health_check()
-        results["components"]["llm"] = llm_check
+        await llm_client.health_check()
+        components["llm"] = "healthy"
     except Exception as e:
-        results["status"] = "degraded"
-        results["components"]["llm"] = {
-            "status": "unhealthy",
-            "error": str(e),
-            "configured": bool(config.llm.api_base)
-        }
-    
+        status = "degraded"
+        components["llm"] = "unhealthy"
+
     # 3. 数据库连接检查
     try:
         from ..db import test_db_connection
         db_ok = await test_db_connection()
-        if db_ok:
-            results["components"]["database"] = {"status": "healthy"}
-        else:
-            results["status"] = "degraded"
-            results["components"]["database"] = {"status": "unhealthy"}
+        components["database"] = "healthy" if db_ok else "unhealthy"
+        if not db_ok:
+            status = "degraded"
     except Exception as e:
-        results["status"] = "degraded"
-        results["components"]["database"] = {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-    
+        status = "degraded"
+        components["database"] = "unhealthy"
+
     # 4. 安全规则检查
     try:
         from ..security.rules import SecurityRuleEngine
         engine = SecurityRuleEngine()
-        rules = engine.rules
-        level_counts = {}
-        for rule in rules:
-            level_counts[rule.level] = level_counts.get(rule.level, 0) + 1
-        
-        results["components"]["security_rules"] = {
-            "status": "healthy",
-            "rules_count": len(rules),
-            "rules_by_level": level_counts
-        }
+        _ = engine.rules
+        components["security_rules"] = "healthy"
     except Exception as e:
-        results["status"] = "degraded"
-        results["components"]["security_rules"] = {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-    
+        status = "degraded"
+        components["security_rules"] = "unhealthy"
+
     # 5. 安全护栏检查
     try:
         from ..security.guard import SecurityGuard
-        guard = SecurityGuard()
-        results["components"]["security_guard"] = {
-            "status": "healthy",
-            "whitelist_enabled": True,
-            "checks_performed": guard._stats.get("command_checks", 0)
-        }
+        _ = SecurityGuard()
+        components["security_guard"] = "healthy"
     except Exception as e:
-        results["components"]["security_guard"] = {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-    
+        components["security_guard"] = "unhealthy"
+
     # 6. 中间件检查
-    try:
-        results["components"]["middleware"] = {
-            "status": "healthy",
-            "rate_limit_enabled": True,
-            "request_monitor_enabled": True
-        }
-    except Exception as e:
-        results["components"]["middleware"] = {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-    
+    components["middleware"] = "healthy"
+
     # 7. 审计日志检查
     try:
         from ..audit import AuditLogger
-        logger = AuditLogger()
-        results["components"]["audit_logger"] = {
-            "status": "healthy",
-            "log_dir": str(logger.log_dir)
-        }
+        _ = AuditLogger()
+        components["audit_logger"] = "healthy"
     except Exception as e:
-        results["components"]["audit_logger"] = {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-    
+        components["audit_logger"] = "unhealthy"
+
     # 汇总状态
-    unhealthy_count = sum(
-        1 for comp in results["components"].values() 
-        if comp.get("status") != "healthy"
-    )
+    unhealthy_count = sum(1 for s in components.values() if s != "healthy")
+    total_count = len(components)
     if unhealthy_count > 0:
-        results["status"] = "degraded" if unhealthy_count < len(results["components"]) else "unhealthy"
-    
-    # 兼容前端：在根级别提供 tools_count
-    results["tools_count"] = results["components"].get("mcp_tools", {}).get("tools_count", 0)
-    
-    # 计算响应时间
-    results["response_ms"] = round((time.time() - results["timestamp"]) * 1000, 2)
-    
-    return results
+        status = "degraded" if unhealthy_count < total_count else "unhealthy"
+
+    return {
+        "status": status,
+        "agent_name": config.agent.name,
+        "version": config.agent.version,
+        "timestamp": start_ts,
+        "datetime": datetime.now().isoformat(),
+        "components": components,
+        "response_ms": round((time.time() - start_ts) * 1000, 2),
+    }
 
 
 @router.get("/config")
@@ -1353,11 +1338,36 @@ async def create_privilege_request(
 ):
     """创建 root 权限申请"""
     import uuid
+
+    # 1. 校验会话归属：只能为自己拥有的会话申请权限
+    chat_session = await db_get_chat_session(request.session_id)
+    if chat_session and chat_session.get("username") != user:
+        raise HTTPException(status_code=403, detail="无权为该会话申请权限")
+
+    # 2. 命令基础安全校验
+    command = request.command.strip()
+    if not command:
+        raise HTTPException(status_code=400, detail="命令不能为空")
+    # 禁止以 '-' 开头（防止被解析为选项）和常见危险字符
+    if command.startswith("-"):
+        raise HTTPException(status_code=400, detail="命令不能以 '-' 开头")
+    dangerous_chars = set(";|&$`\n\r<>")
+    if any(c in command for c in dangerous_chars):
+        raise HTTPException(status_code=400, detail="命令包含非法字符")
+
+    # 3. 使用安全护栏进一步评估命令风险
+    cfg = get_config()
+    guard = SecurityGuard(cfg.security.model_dump())
+    _, cmd_reason, cmd_detail = guard.validate_command(command, "shell", {})
+    risk_level = cmd_detail.get("risk_level", "unknown")
+    if risk_level == "critical":
+        raise HTTPException(status_code=400, detail=f"命令被安全护栏阻断: {cmd_reason}")
+
     request_id = "priv_" + str(uuid.uuid4())[:12]
     await db_create_privilege_request(
         request_id=request_id,
         session_id=request.session_id,
-        command=request.command,
+        command=command,
         reason=request.reason,
         requested_by=user,
     )

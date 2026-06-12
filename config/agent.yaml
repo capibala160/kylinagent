@@ -92,8 +92,8 @@ security:
     - "sestatus"
     - "crontab"
     - "getent"
-    - "useradd"
-    - "kill"
+    # 注意：useradd、kill 等涉及账户/进程变更的命令已从白名单移除，
+    # 避免在受限用户上下文被滥用；必要时应通过专用 MCP 工具并走审批流程。
 
 # 审计配置
 audit:
@@ -104,7 +104,7 @@ audit:
 
 # 认证配置
 auth:
-  session_ttl: 2592000  # 30天，单位秒（延长登录状态保持时间，减少重复注册）
+  session_ttl: 86400  # 24小时，单位秒（生产环境建议更短）
   enable_dev_token: false  # 比赛环境禁用开发Token，确保安全
   cookie_secure: false     # HTTP环境设为false，HTTPS环境设为true
 
