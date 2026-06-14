@@ -87,6 +87,17 @@ class OpsAgent:
                     isError=True,
                     errorMessage="不存在有效的已审批 root 权限申请"
                 )
+            # 校验权限申请是否绑定当前待执行的工具与参数，防止一次审批被用于执行其他命令
+            import json as _json
+            req_tool = approved_req.get("tool_name")
+            req_args_raw = approved_req.get("arguments")
+            req_args = _json.loads(req_args_raw) if req_args_raw else None
+            if req_tool is not None and (req_tool != tool_name or req_args != arguments):
+                return ToolCallResult(
+                    content=[TextContent(type="text", text="安全限制: 已审批的 root 权限申请与当前操作不匹配")],
+                    isError=True,
+                    errorMessage="root 权限申请与当前操作不匹配"
+                )
             # 核销权限申请，防止被重复利用
             await db_consume_privilege_request(approved_req["request_id"])
 
@@ -292,6 +303,8 @@ class OpsAgent:
             needs_confirm = False
             needs_elevation = False
             elevation_command = ""
+            elevation_tool_name = ""
+            elevation_arguments: Dict[str, Any] = {}
             confirm_reason = ""
             
             for tool_call in tool_calls:
@@ -382,6 +395,8 @@ class OpsAgent:
                 if result.isError and result.errorMessage and ("权限" in result.errorMessage or "Permission" in result.errorMessage or "permission" in result.errorMessage.lower()):
                     needs_elevation = True
                     elevation_command = cmd_str
+                    elevation_tool_name = tool_name
+                    elevation_arguments = arguments
                 
                 tool_results.append({
                     "tool": tool_name,
@@ -411,6 +426,8 @@ class OpsAgent:
                     "requires_confirm": False,
                     "requires_privilege_elevation": True,
                     "elevation_command": elevation_command,
+                    "elevation_tool_name": elevation_tool_name,
+                    "elevation_arguments": elevation_arguments,
                 }
             
             # 6b. 同时有 CRITICAL 阻断和 MEDIUM/HIGH 需确认时，

@@ -5,7 +5,7 @@
 支持邮箱验证码和短信验证码。
 """
 
-import random
+import secrets
 import time
 import logging
 from typing import Optional, Dict
@@ -59,7 +59,7 @@ class VerificationManager:
     @staticmethod
     def generate_code(length: int = CODE_LENGTH) -> str:
         """生成随机数字验证码"""
-        return "".join([str(random.randint(0, 9)) for _ in range(length)])
+        return "".join([str(secrets.randbelow(10)) for _ in range(length)])
 
     @classmethod
     async def send_code(cls, target: str, target_type: str, purpose: str) -> Dict:

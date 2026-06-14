@@ -34,7 +34,8 @@ async def run_tests():
             assert r.status_code == 200
             data = r.json()
             assert data["status"] == "healthy"
-            print(f"  ✅ 通过 - {data['agent_name']} v{data['version']}, 工具数: {data['tools_count']}")
+            tools_count = data.get('tools_count', '未知')
+            print(f"  ✅ 通过 - {data['agent_name']} v{data['version']}, 工具数: {tools_count}")
             passed += 1
         except Exception as e:
             print(f"  ❌ 失败: {e}")

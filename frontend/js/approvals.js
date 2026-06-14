@@ -41,8 +41,8 @@ function renderApprovals(requests) {
             </div>
             ${req.status === 'pending' && !isExpired ? `
             <div class="approval-actions">
-                <button class="btn-danger" onclick="approveRequest('${escapeHtml(req.request_id)}')">批准</button>
-                <button class="btn-secondary" onclick="rejectRequest('${escapeHtml(req.request_id)}')">拒绝</button>
+                <button class="btn-danger" data-approve="${escapeHtml(req.request_id)}">批准</button>
+                <button class="btn-secondary" data-reject="${escapeHtml(req.request_id)}">拒绝</button>
             </div>
             ` : ''}
         </div>
@@ -50,6 +50,17 @@ function renderApprovals(requests) {
     });
     html += '</div>';
     container.innerHTML = html;
+
+    // 使用事件委托绑定审批按钮，避免在 HTML 属性中拼接 request_id 导致的注入风险
+    container.onclick = (e) => {
+        const target = e.target;
+        if (target.tagName === 'BUTTON') {
+            const approveId = target.getAttribute('data-approve');
+            const rejectId = target.getAttribute('data-reject');
+            if (approveId) approveRequest(approveId);
+            else if (rejectId) rejectRequest(rejectId);
+        }
+    };
 }
 
 async function approveRequest(requestId) {

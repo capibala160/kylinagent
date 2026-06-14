@@ -323,7 +323,7 @@ class AuditLogger:
                         data = json.loads(line.strip())
                         if data.get("chain_id") == chain_id:
                             return data
-                    except:
+                    except Exception:
                         continue
         return None
 

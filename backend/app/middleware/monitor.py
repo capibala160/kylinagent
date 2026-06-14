@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import os
 import time
 import logging
 from typing import Dict, Optional, Callable
@@ -258,15 +259,24 @@ class RequestMonitorMiddleware(BaseHTTPMiddleware):
                 return True
         return False
     
+    # 可信代理列表：仅当请求直接来源为这些地址时才读取 X-Forwarded-For
+    _TRUSTED_PROXIES = frozenset(
+        ip.strip()
+        for ip in os.environ.get("TRUSTED_PROXIES", "").split(",")
+        if ip.strip()
+    )
+
     def _get_client_info(self, request: Request) -> tuple[str, Optional[str]]:
         """获取客户端信息"""
         client_ip = request.client.host if request.client else "unknown"
-        
-        # 代理场景下获取真实 IP
-        forwarded_for = request.headers.get("X-Forwarded-For", "")
-        if forwarded_for:
-            client_ip = forwarded_for.split(",")[0].strip()
-        
+
+        # 仅在配置了可信代理且直接来源为可信代理时，才读取 X-Forwarded-For
+        # 防止客户端伪造 IP 污染监控与审计日志
+        if self._TRUSTED_PROXIES and client_ip in self._TRUSTED_PROXIES:
+            forwarded_for = request.headers.get("X-Forwarded-For", "")
+            if forwarded_for:
+                client_ip = forwarded_for.split(",")[0].strip()
+
         # 获取用户身份（如果已认证）
         user = None
         auth_header = request.headers.get("Authorization", "")

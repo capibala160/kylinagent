@@ -141,18 +141,72 @@ class SMSService:
             logger.info(f"[短信模拟-自定义] To: {phone}, code={code}, purpose={purpose}")
             return True
 
-        # SSRF 防护：仅允许 HTTPS 且域名为白名单（默认仅允许常见短信网关端口）
+        # SSRF 防护：仅允许 HTTPS，禁止内网/IP/本地主机，解析 DNS 并校验所有解析地址
         from urllib.parse import urlparse
+        import ipaddress
+        import socket
         parsed = urlparse(self.custom_url)
         if parsed.scheme not in ("https",):
             logger.error(f"自定义短信 URL 仅允许 HTTPS: {self.custom_url}")
             return False
-        # 禁止内网地址
+
         hostname = (parsed.hostname or "").lower()
-        blocked_hosts = ("localhost", "127.", "10.", "172.16.", "192.168.", "0.", "[::1]")
-        if any(hostname.startswith(b) for b in blocked_hosts):
-            logger.error(f"自定义短信 URL 禁止内网地址: {hostname}")
+        if not hostname:
+            logger.error(f"自定义短信 URL 缺少主机名: {self.custom_url}")
             return False
+
+        # 禁止纯 IP 地址（应使用域名）和本地主机名
+        blocked_hosts = ("localhost", "[::1]")
+        if hostname in blocked_hosts or hostname.startswith("127."):
+            logger.error(f"自定义短信 URL 禁止本地地址: {hostname}")
+            return False
+
+        try:
+            # 尝试解析为 IP；若是公网 IP 则放行，私网/保留 IP 则阻断
+            addr = ipaddress.ip_address(hostname)
+            if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_multicast or addr.is_unspecified:
+                logger.error(f"自定义短信 URL 禁止内网/保留 IP: {hostname}")
+                return False
+        except ValueError:
+            # 是域名，继续 DNS 校验
+            pass
+
+        try:
+            # 解析域名并校验所有 A 记录均为公网 IP，防止 DNS 重绑定
+            _, _, ip_list = socket.gethostbyname_ex(hostname)
+            for ip in ip_list:
+                addr = ipaddress.ip_address(ip)
+                if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_multicast or addr.is_unspecified:
+                    logger.error(f"自定义短信 URL 解析到内网/保留 IP: {hostname} -> {ip}")
+                    return False
+        except socket.gaierror as e:
+            logger.error(f"自定义短信 URL 域名解析失败: {hostname}, error={e}")
+            return False
+
+        # 自定义重定向处理器：每次跳转都重新执行 SSRF 校验
+        class ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                parsed_new = urlparse(newurl)
+                if parsed_new.scheme not in ("https",):
+                    raise urllib.request.HTTPError(newurl, code, "自定义短信 URL 重定向后仅允许 HTTPS", headers, fp)
+                new_host = (parsed_new.hostname or "").lower()
+                if not new_host:
+                    raise urllib.request.HTTPError(newurl, code, "自定义短信 URL 重定向后缺少主机名", headers, fp)
+                # 解析并校验新地址
+                try:
+                    addr = ipaddress.ip_address(new_host)
+                    if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_multicast or addr.is_unspecified:
+                        raise urllib.request.HTTPError(newurl, code, "自定义短信 URL 重定向到内网地址", headers, fp)
+                except ValueError:
+                    try:
+                        _, _, ip_list = socket.gethostbyname_ex(new_host)
+                        for ip in ip_list:
+                            addr = ipaddress.ip_address(ip)
+                            if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_multicast or addr.is_unspecified:
+                                raise urllib.request.HTTPError(newurl, code, "自定义短信 URL 重定向解析到内网地址", headers, fp)
+                    except socket.gaierror as e:
+                        raise urllib.request.HTTPError(newurl, code, f"自定义短信 URL 重定向域名解析失败: {e}", headers, fp)
+                return super().redirect_request(req, fp, code, msg, headers, newurl)
 
         try:
             payload = json.dumps({
@@ -168,7 +222,8 @@ class SMSService:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            opener = urllib.request.build_opener(ValidatingRedirectHandler)
+            with opener.open(req, timeout=10) as resp:
                 if 200 <= resp.status < 300:
                     logger.info(f"短信发送成功(自定义): {phone}")
                     return True

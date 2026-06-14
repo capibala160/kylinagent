@@ -117,7 +117,7 @@ email:
   smtp_host: "smtp.qq.com"
   smtp_port: 465
   smtp_user: "1364387139@qq.com"
-  smtp_password: ""  # 请通过环境变量 SMTP_PASSWORD 设置
+  smtp_password: ""  # 通过 SMTP_PASSWORD 环境变量注入，禁止在仓库中填写真实授权码
   sender_name: "Kylin Ops Agent"
 
 # 短信服务配置

@@ -4,7 +4,7 @@ import time
 import json
 import asyncio
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query, Header, Depends, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -424,6 +424,10 @@ async def forgot_password(request: ForgotPasswordRequest):
     if request.target_type == "email":
         email_svc = get_email_service()
         await email_svc.send_password_reset(request.target, result["code"])
+    elif request.target_type == "phone":
+        from ..auth.sms import get_sms_service
+        sms_svc = get_sms_service()
+        await sms_svc.send_verification_code(request.target, result["code"], "密码重置")
 
     return {
         "success": True,
@@ -602,7 +606,9 @@ async def chat_stream(request: ChatRequest, user: str = Depends(get_current_user
             yield _sse_event("privilege", {
                 "message": result.get("message", ""),
                 "chain_id": result.get("chain_id", ""),
-                "command": result.get("elevation_command")
+                "command": result.get("elevation_command"),
+                "tool_name": result.get("elevation_tool_name"),
+                "arguments": result.get("elevation_arguments"),
             })
             yield _sse_event("done", {"chain_id": result.get("chain_id", ""), "success": False})
             return
@@ -1084,44 +1090,52 @@ async def export_audit_logs(
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
 
-    # CSV 格式
-    def csv_generator():
-        output = io.StringIO()
-        writer = csv.writer(output)
-        # 表头
-        writer.writerow([
-            "chain_id", "session_id", "user", "user_input",
-            "start_time", "end_time", "duration_sec",
-            "final_status", "summary", "node_count",
-            "execution_path"
-        ])
-        yield output.getvalue()
-        output.seek(0)
-        output.truncate(0)
-
-        for chain in chains:
-            nodes = chain.get("nodes", [])
-            # 提取执行路径
-            path = " -> ".join(n.get("node_type", "") for n in nodes)
+    # CSV 格式：在独立线程中生成，避免阻塞事件循环
+    async def csv_async_generator():
+        def _generate_chunks():
+            output = io.StringIO()
+            writer = csv.writer(output)
+            chunks = []
+            # 表头
             writer.writerow([
-                chain.get("chain_id", ""),
-                chain.get("session_id", ""),
-                chain.get("user", ""),
-                chain.get("user_input", "").replace("\n", " ")[:200],
-                chain.get("start_time", ""),
-                chain.get("end_time", ""),
-                chain.get("duration_sec", ""),
-                chain.get("final_status", ""),
-                (chain.get("summary", "") or "").replace("\n", " ")[:300],
-                len(nodes),
-                path
+                "chain_id", "session_id", "user", "user_input",
+                "start_time", "end_time", "duration_sec",
+                "final_status", "summary", "node_count",
+                "execution_path"
             ])
-            yield output.getvalue()
+            chunks.append(output.getvalue())
             output.seek(0)
             output.truncate(0)
 
+            for chain in chains:
+                nodes = chain.get("nodes", [])
+                # 提取执行路径
+                path = " -> ".join(n.get("node_type", "") for n in nodes)
+                writer.writerow([
+                    chain.get("chain_id", ""),
+                    chain.get("session_id", ""),
+                    chain.get("user", ""),
+                    chain.get("user_input", "").replace("\n", " ")[:200],
+                    chain.get("start_time", ""),
+                    chain.get("end_time", ""),
+                    chain.get("duration_sec", ""),
+                    chain.get("final_status", ""),
+                    (chain.get("summary", "") or "").replace("\n", " ")[:300],
+                    len(nodes),
+                    path
+                ])
+                chunks.append(output.getvalue())
+                output.seek(0)
+                output.truncate(0)
+            return chunks
+
+        loop = asyncio.get_event_loop()
+        chunks = await loop.run_in_executor(None, _generate_chunks)
+        for chunk in chunks:
+            yield chunk
+
     return StarletteStreamingResponse(
-        csv_generator(),
+        csv_async_generator(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
@@ -1146,10 +1160,11 @@ async def health_check():
     components: Dict[str, str] = {}
 
     # 1. MCP 工具注册检查
+    tools_count = 0
     try:
         from ..mcp.tools import get_registry
         registry = get_registry()
-        registry.list_tools()
+        tools_count = len(registry.list_tools())
         components["mcp_tools"] = "healthy"
     except Exception as e:
         status = "degraded"
@@ -1218,6 +1233,7 @@ async def health_check():
         "timestamp": start_ts,
         "datetime": datetime.now().isoformat(),
         "components": components,
+        "tools_count": tools_count,
         "response_ms": round((time.time() - start_ts) * 1000, 2),
     }
 
@@ -1325,6 +1341,8 @@ class PrivilegeRequestBody(BaseModel):
     session_id: str
     command: str = Field(..., description="需要提权的命令/工具调用")
     reason: str = Field(..., min_length=5, description="申请理由（至少5个字）")
+    tool_name: Optional[str] = Field(None, description="申请提权的工具名（用于绑定一次审批仅执行一次指定操作）")
+    arguments: Optional[Dict[str, Any]] = Field(None, description="申请提权的工具参数（JSON 对象）")
 
 
 class PrivilegeApproveBody(BaseModel):
@@ -1370,6 +1388,8 @@ async def create_privilege_request(
         command=command,
         reason=request.reason,
         requested_by=user,
+        tool_name=request.tool_name,
+        arguments=request.arguments,
     )
     return {
         "success": True,

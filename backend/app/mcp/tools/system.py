@@ -153,15 +153,17 @@ class KernelLogTool(BaseTool):
         dmesg_level = level_map.get(level, "err")
         
         try:
-            # 先尝试带 --level 参数（新版本 dmesg）
+            # 使用 --level 过滤内核日志级别，再用 Python 切片限制行数
+            # 注意：dmesg 的 -n 参数用于设置控制台日志级别，不是行数限制，因此这里不能用它
             result = subprocess.run(
-                ["dmesg", "--level=" + dmesg_level, "--no-pager", "-n", str(limit)],
+                ["dmesg", "--level=" + dmesg_level, "--no-pager"],
                 capture_output=True, text=True, timeout=15
             )
-            output = result.stdout if result.returncode == 0 else ""
-            
-            if result.returncode != 0:
-                # 回退到基础 dmesg + tail
+            if result.returncode == 0:
+                lines = result.stdout.strip().split("\n")
+                output = "\n".join(lines[-limit:])
+            else:
+                # 回退到基础 dmesg + Python 切片
                 result2 = subprocess.run(
                     ["dmesg"],
                     capture_output=True, text=True, timeout=15
@@ -171,9 +173,6 @@ class KernelLogTool(BaseTool):
                     output = "\n".join(lines[-limit:])
                 else:
                     output = f"dmesg 不可用: {result2.stderr}"
-            else:
-                lines = output.strip().split("\n")
-                output = "\n".join(lines[-limit:])
             
             text = f"内核日志 (级别: {level}, 最近 {min(limit, len(output.split(chr(10))))} 条):\n{output}"
             return ToolCallResult(content=[TextContent(type="text", text=text)])

@@ -187,6 +187,14 @@ class MCPServer:
                 content=[TextContent(type="text", text=f"🛡️ 安全护栏拦截: {cmd_reason}")],
             ).model_dump()
 
+        # MCP 端点直接调用时，中/高风险操作必须走聊天确认流程，避免绕过二次确认
+        if risk_level_str in ("medium", "high"):
+            return CallToolResult(
+                isError=True,
+                errorMessage="[SECURITY CONFIRM REQUIRED] 中/高风险操作请通过 /api/chat 确认后执行",
+                content=[TextContent(type="text", text=f"⚠️ 该操作被认定为 {risk_level_str} 风险，请通过聊天界面确认后执行。原因: {cmd_reason}")],
+            ).model_dump()
+
         # 3. 执行工具
         exec_start = time.time()
         try:

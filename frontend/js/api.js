@@ -40,7 +40,8 @@ async function checkHealth() {
         const statusText = document.getElementById('statusText');
         if (statusDot) {
             statusDot.className = 'status-dot online';
-            statusText.textContent = `在线 | ${data.tools_count} 个工具`;
+            const toolsCount = data.tools_count ?? '--';
+            statusText.textContent = `在线 | ${toolsCount} 个工具`;
         }
         // 同步全局网络状态，确保离线横幅和重连指示器被隐藏
         if (typeof isOnline !== 'undefined') {

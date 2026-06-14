@@ -1,8 +1,11 @@
+import logging
 import os
 import posixpath
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from .rules import SecurityRuleEngine, RiskLevel, CommandWhitelist
+
+logger = logging.getLogger(__name__)
 
 
 class SecurityGuard:
@@ -48,15 +51,18 @@ class SecurityGuard:
         dangerous_patterns = self.config.get("dangerous_commands", [])
         from .rules import RiskRule
         for i, pattern in enumerate(dangerous_patterns):
-            self.rule_engine.add_rule(
-                RiskRule(
-                    name=f"config_dangerous_{i}",
-                    pattern=pattern,
-                    level=RiskLevel.CRITICAL,
-                    description=f"配置文件定义的危险模式: {pattern}",
-                    action="block"
+            try:
+                self.rule_engine.add_rule(
+                    RiskRule(
+                        name=f"config_dangerous_{i}",
+                        pattern=pattern,
+                        level=RiskLevel.CRITICAL,
+                        description=f"配置文件定义的危险模式: {pattern}",
+                        action="block"
+                    )
                 )
-            )
+            except re.error as e:
+                logger.warning(f"配置文件中的危险命令正则非法，已跳过: pattern={pattern!r}, error={e}")
     
     def validate_intent(self, user_input: str) -> Tuple[bool, str, Dict]:
         """

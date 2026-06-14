@@ -3,11 +3,14 @@
 使用 SQLite 存储用户和 Session 数据，服务重启后数据不丢失
 """
 
+import logging
 import os
 import json
 import time
 from pathlib import Path
 from typing import Optional, List, Dict
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column
@@ -85,9 +88,11 @@ async def init_db():
         ]:
             try:
                 await conn.execute(text(col_def))
-            except Exception:
-                # 列已存在或其他错误，忽略
+            except sa_exc.OperationalError:
+                # 列已存在，忽略
                 pass
+            except Exception as e:
+                logger.warning(f"用户表列迁移失败，已跳过: {col_def}, error={e}")
 
 
 async def close_db():
@@ -275,6 +280,17 @@ async def db_delete_expired_sessions(ttl: int) -> int:
     async with factory() as session:
         result = await session.execute(
             delete(SessionModel).where(SessionModel.last_active < cutoff)
+        )
+        await session.commit()
+        return result.rowcount
+
+
+async def db_delete_user_sessions(username: str) -> int:
+    """删除指定用户的所有 Session，返回删除数量"""
+    factory = await get_session_factory()
+    async with factory() as session:
+        result = await session.execute(
+            delete(SessionModel).where(SessionModel.username == username)
         )
         await session.commit()
         return result.rowcount
@@ -646,6 +662,8 @@ async def db_get_approved_privilege_request_by_session(
                 "request_id": r.request_id,
                 "session_id": r.session_id,
                 "command": r.command,
+                "tool_name": r.tool_name,
+                "arguments": r.arguments,
                 "reason": r.reason,
                 "status": r.status,
                 "requested_by": r.requested_by,

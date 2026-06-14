@@ -294,16 +294,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return response
     
     async def get_stats(self) -> Dict:
-        """获取所有限流器的统计信息"""
-        stats = {
-            "default": await self._default_limiter.get_stats(),
-            "paths": {},
-        }
-        for path, limiter in self._limiters.items():
-            stats["paths"][path] = await limiter.get_stats()
-        return stats
-
-    async def get_stats(self) -> Dict:
         """获取所有限流器的统计信息（实例方法，向后兼容）"""
         return await get_shared_rate_limit_stats()
 

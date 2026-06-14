@@ -121,7 +121,12 @@ async function sendMessage(messageOverride = null, confirmed = false, elevated =
                 } else if (eventName === 'privilege') {
                     removeLoadingMessage(loadingId);
                     if (streamingDiv) { streamingDiv.remove(); streamingDiv = null; }
-                    pendingPrivilege = { message, command: data.command };
+                    pendingPrivilege = {
+                        message,
+                        command: data.command,
+                        tool_name: data.tool_name || '',
+                        arguments: data.arguments || {}
+                    };
                     document.getElementById('privilegeMessage').textContent = data.message || '需要 root 权限';
                     document.getElementById('privilegeCommand').textContent = data.command || '';
                     document.getElementById('privilegeReason').value = '';
@@ -425,7 +430,9 @@ async function submitPrivilegeRequest() {
         const reqRes = await apiPost('/privilege/request', {
             session_id: currentSessionId,
             command: pendingPrivilege.command || '',
-            reason: reason
+            reason: reason,
+            tool_name: pendingPrivilege.tool_name || undefined,
+            arguments: pendingPrivilege.arguments || undefined
         });
         
         if (!reqRes.success) {

@@ -120,7 +120,7 @@ class RootCauseAnalyzer:
                     summary="服务名不能以 '-' 开头",
                 )
             log = _run_cmd(
-                ["journalctl", "-u", "--", service_name, "--no-pager", "-n", "200"],
+                ["journalctl", "-u", service_name, "--no-pager", "-n", "200"],
                 timeout=15,
             )
         else:

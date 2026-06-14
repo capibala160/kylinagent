@@ -446,28 +446,38 @@ class SystemMonitor:
     # ------------------------------------------------------------------
 
     def _mock_data(self) -> Dict[str, Any]:
-        import random
+        import secrets
+
+        def _rand_int(min_val: int, max_val: int) -> int:
+            """生成 [min_val, max_val] 范围内的密码学安全整数"""
+            return secrets.randbelow(max_val - min_val + 1) + min_val
+
+        def _rand_float(min_val: float, max_val: float, precision: int = 2) -> float:
+            """生成 [min_val, max_val] 范围内的密码学安全浮点数"""
+            scale = 10 ** precision
+            return (secrets.randbelow(int((max_val - min_val) * scale) + 1) / scale) + min_val
+
         t = time.time()
         # 基于时间生成一些波动的 mock 数据
         cpu_wave = 30 + 20 * ((t % 60) / 60)
         mem_wave = 50 + 10 * ((t % 120) / 120)
         return {
             "cpu": {
-                "usage_percent": round(cpu_wave + random.uniform(-5, 5), 1),
+                "usage_percent": round(cpu_wave + _rand_float(-5, 5, 1), 1),
                 "cores": 8,
-                "load_avg": [round(cpu_wave / 20 + random.uniform(-0.2, 0.2), 2) for _ in range(3)],
+                "load_avg": [round(cpu_wave / 20 + _rand_float(-0.2, 0.2, 2), 2) for _ in range(3)],
                 "model": "Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz (Mock)",
             },
             "memory": {
                 "total_gb": 32.0,
-                "used_gb": round(32.0 * (mem_wave + random.uniform(-3, 3)) / 100, 2),
+                "used_gb": round(32.0 * (mem_wave + _rand_float(-3, 3, 1)) / 100, 2),
                 "free_gb": round(32.0 * (100 - mem_wave) / 100, 2),
-                "usage_percent": round(mem_wave + random.uniform(-3, 3), 1),
-                "buffers_mb": round(random.uniform(200, 500), 1),
-                "cached_mb": round(random.uniform(1000, 3000), 1),
+                "usage_percent": round(mem_wave + _rand_float(-3, 3, 1), 1),
+                "buffers_mb": round(_rand_float(200, 500, 1), 1),
+                "cached_mb": round(_rand_float(1000, 3000, 1), 1),
                 "swap_total_gb": 8.0,
-                "swap_used_gb": round(random.uniform(0, 2), 2),
-                "swap_usage_percent": round(random.uniform(0, 25), 1),
+                "swap_used_gb": round(_rand_float(0, 2, 2), 2),
+                "swap_usage_percent": round(_rand_float(0, 25, 1), 1),
             },
             "disk": {
                 "partitions": [
@@ -484,8 +494,8 @@ class SystemMonitor:
                 ],
             },
             "processes": {
-                "total": 245 + int(random.uniform(-10, 10)),
-                "zombie": int(random.uniform(0, 3)),
+                "total": 245 + _rand_int(-10, 10),
+                "zombie": _rand_int(0, 2),
                 "top_cpu": [
                     {"pid": 1234, "user": "nginx", "cpu": 12.5, "mem": 2.3, "command": "/usr/sbin/nginx -g daemon off;"},
                     {"pid": 5678, "user": "postgres", "cpu": 8.2, "mem": 5.1, "command": "postgres: writer process"},
@@ -495,16 +505,16 @@ class SystemMonitor:
                 ],
             },
             "services": {
-                "running": 15 + int(random.uniform(-2, 2)),
-                "failed": int(random.uniform(0, 2)),
+                "running": 15 + _rand_int(-2, 2),
+                "failed": _rand_int(0, 1),
                 "total": 42,
-                "failed_list": [] if random.random() > 0.3 else ["test-failed-service.service"],
+                "failed_list": [] if _rand_int(0, 9) >= 3 else ["test-failed-service.service"],
             },
             "system": {
                 "hostname": "kylin-ops-agent",
                 "kernel": "5.4.18-53-generic",
                 "arch": "loongarch64",
-                "uptime_seconds": 86400 + int(random.uniform(0, 3600)),
+                "uptime_seconds": 86400 + _rand_int(0, 3600),
             },
             "timestamp": t,
             "mock": True,

@@ -8,7 +8,15 @@ let currentUserRole = 'user';
 let currentUsername = '';
 
 function generateSessionId() {
-    const id = 'sess_' + Math.random().toString(36).substr(2, 9);
+    let randomPart;
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const arr = new Uint32Array(2);
+        crypto.getRandomValues(arr);
+        randomPart = Array.from(arr, n => n.toString(36)).join('');
+    } else {
+        randomPart = Math.random().toString(36).substr(2, 9) + Math.random().toString(36).substr(2, 9);
+    }
+    const id = 'sess_' + randomPart;
     StorageManager.setSessionId(id);
     return id;
 }

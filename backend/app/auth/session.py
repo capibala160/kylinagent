@@ -4,6 +4,7 @@
 生产环境建议迁移到 PostgreSQL/MySQL 以支持多实例横向扩展。
 """
 
+import asyncio
 import logging
 import os
 import secrets
@@ -14,6 +15,7 @@ from fastapi import Request, HTTPException
 
 logger = logging.getLogger(__name__)
 
+from ..config import get_config
 from ..db import (
     init_db,
     db_user_exists,
@@ -27,6 +29,7 @@ from ..db import (
     db_update_session_last_active,
     db_delete_session,
     db_delete_expired_sessions,
+    db_delete_user_sessions,
     db_update_user_password,
 )
 
@@ -40,14 +43,13 @@ DEV_API_TOKEN = _DEV_API_TOKEN_RAW if _DEV_API_TOKEN_RAW.strip() else None
 class SessionAuth:
     """基于 SQLite 的 Session 管理器"""
 
-    # Session 有效期：24 小时（与 cookie max_age 保持一致）
-    SESSION_TTL = 3600 * 24
-
     def __init__(self):
         # 内存缓存（减少数据库查询）
         self._session_cache: Dict[str, dict] = {}
         self._user_cache: Dict[str, dict] = {}
         self._db_initialized = False
+        # 缓存锁：防止并发修改导致的数据不一致
+        self._cache_lock = asyncio.Lock()
 
     async def _ensure_db(self):
         """确保数据库已初始化"""
@@ -56,8 +58,9 @@ class SessionAuth:
             self._db_initialized = True
             # 加载所有用户到内存缓存
             users = await db_get_all_users()
-            for u in users:
-                self._user_cache[u["username"]] = u
+            async with self._cache_lock:
+                for u in users:
+                    self._user_cache[u["username"]] = u
 
     # ------------------------------------------------------------------
     # 密码哈希
@@ -80,16 +83,21 @@ class SessionAuth:
     # 公有接口
     # ------------------------------------------------------------------
 
+    def _session_ttl(self) -> int:
+        """从配置读取 Session 有效期，保证服务端、Cookie、数据库清理一致"""
+        return get_config().auth.session_ttl
+
     async def create(self, username: str) -> str:
         """创建新 Session，返回 Session ID"""
         await self._ensure_db()
         sid = secrets.token_urlsafe(32)
         await db_create_session(sid, username)
-        self._session_cache[sid] = {
-            "username": username,
-            "created_at": time.time(),
-            "last_active": time.time(),
-        }
+        async with self._cache_lock:
+            self._session_cache[sid] = {
+                "username": username,
+                "created_at": time.time(),
+                "last_active": time.time(),
+            }
         return sid
 
     async def verify(self, request: Request) -> str:
@@ -105,16 +113,18 @@ class SessionAuth:
         if sid:
             # 先查内存缓存
             cached = self._session_cache.get(sid)
-            if cached and (time.time() - cached["last_active"] <= self.SESSION_TTL):
-                cached["last_active"] = time.time()
+            if cached and (time.time() - cached["last_active"] <= self._session_ttl()):
+                async with self._cache_lock:
+                    cached["last_active"] = time.time()
                 await db_update_session_last_active(sid)
                 return cached["username"]
 
             # 缓存未命中，查数据库
             await self._ensure_db()
             session = await db_get_session(sid)
-            if session and (time.time() - session["last_active"] <= self.SESSION_TTL):
-                self._session_cache[sid] = session
+            if session and (time.time() - session["last_active"] <= self._session_ttl()):
+                async with self._cache_lock:
+                    self._session_cache[sid] = session
                 await db_update_session_last_active(sid)
                 return session["username"]
 
@@ -131,7 +141,8 @@ class SessionAuth:
     async def destroy(self, sid: str):
         """销毁指定 Session"""
         await self._ensure_db()
-        self._session_cache.pop(sid, None)
+        async with self._cache_lock:
+            self._session_cache.pop(sid, None)
         await db_delete_session(sid)
 
     async def get_session_info(self, sid: str) -> Optional[dict]:
@@ -144,19 +155,22 @@ class SessionAuth:
         # 再查数据库
         session = await db_get_session(sid)
         if session:
-            self._session_cache[sid] = session
+            async with self._cache_lock:
+                self._session_cache[sid] = session
         return session
 
     async def cleanup_expired(self) -> int:
         """清理过期 Session，返回清理数量"""
         await self._ensure_db()
-        count = await db_delete_expired_sessions(self.SESSION_TTL)
+        ttl = self._session_ttl()
+        count = await db_delete_expired_sessions(ttl)
         # 同步清理内存缓存
         now = time.time()
-        expired = [sid for sid, s in self._session_cache.items()
-                   if now - s["last_active"] > self.SESSION_TTL]
-        for sid in expired:
-            self._session_cache.pop(sid, None)
+        async with self._cache_lock:
+            expired = [sid for sid, s in self._session_cache.items()
+                       if now - s["last_active"] > ttl]
+            for sid in expired:
+                self._session_cache.pop(sid, None)
         return count
 
     # ------------------------------------------------------------------
@@ -184,14 +198,15 @@ class SessionAuth:
         password_hash = self._hash_password(password)
         success = await db_create_user(username, password_hash, role="user", phone=phone, email=email)
         if success:
-            self._user_cache[username] = {
-                "username": username,
-                "password_hash": password_hash,
-                "role": "user",
-                "phone": phone,
-                "email": email,
-                "created_at": time.time(),
-            }
+            async with self._cache_lock:
+                self._user_cache[username] = {
+                    "username": username,
+                    "password_hash": password_hash,
+                    "role": "user",
+                    "phone": phone,
+                    "email": email,
+                    "created_at": time.time(),
+                }
         return success
 
     async def get_user_by_phone(self, phone: str) -> Optional[dict]:
@@ -205,12 +220,21 @@ class SessionAuth:
         return await db_get_user_by_email(email)
 
     async def reset_password(self, username: str, new_password: str) -> bool:
-        """重置用户密码"""
+        """重置用户密码，并重置后使该用户所有已有 Session 失效"""
         await self._ensure_db()
         password_hash = self._hash_password(new_password)
         success = await db_update_user_password(username, password_hash)
-        if success and username in self._user_cache:
-            self._user_cache[username]["password_hash"] = password_hash
+        if success:
+            async with self._cache_lock:
+                if username in self._user_cache:
+                    self._user_cache[username]["password_hash"] = password_hash
+            # 密码重置后清理所有已有 Session，防止旧会话继续访问
+            await db_delete_user_sessions(username)
+            async with self._cache_lock:
+                self._session_cache = {
+                    sid: s for sid, s in self._session_cache.items()
+                    if s.get("username") != username
+                }
         return success
 
     async def verify_password(self, username: str, password: str) -> bool:
@@ -228,7 +252,8 @@ class SessionAuth:
         if not user:
             return False
         # 加载到缓存
-        self._user_cache[username] = user
+        async with self._cache_lock:
+            self._user_cache[username] = user
         return self._verify_password_hash(password, user["password_hash"])
 
     async def init_default_user(self):
@@ -251,14 +276,15 @@ class SessionAuth:
         if not await db_user_exists(env_user):
             password_hash = self._hash_password(env_pass)
             await db_create_user(env_user, password_hash, role="admin")
-            self._user_cache[env_user] = {
-                "username": env_user,
-                "password_hash": password_hash,
-                "role": "admin",
-                "phone": None,
-                "email": None,
-                "created_at": time.time(),
-            }
+            async with self._cache_lock:
+                self._user_cache[env_user] = {
+                    "username": env_user,
+                    "password_hash": password_hash,
+                    "role": "admin",
+                    "phone": None,
+                    "email": None,
+                    "created_at": time.time(),
+                }
 
 
 # 全局单例工厂（支持测试替换）
