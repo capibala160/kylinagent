@@ -175,8 +175,8 @@ class SecurityGuard:
         "dbus", "polkit", "systemd-logind", "cron", "crond",
         "systemd-networkd", "systemd-resolved", "systemd-timesyncd",
     ]
-    # 禁止杀死的特殊 PID
-    PROTECTED_PIDS = ["1", "0", "self", "thread-self"]
+    # 禁止杀死的特殊 PID（与 KillProcessTool.PROTECTED_PIDS 保持一致）
+    PROTECTED_PIDS = ["0", "1", "2", "self", "thread-self"]
 
     def _validate_tool_parameters(self, tool_name: str, arguments: Dict[str, Any]) -> Tuple[bool, str, RiskLevel]:
         """

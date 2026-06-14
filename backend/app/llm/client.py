@@ -199,8 +199,9 @@ class LLMClient:
                 return await self._mock_fallback.analyze_intent(user_input)
         
         from .prompts import INTENT_ANALYSIS_PROMPT
+        system_prompt = INTENT_ANALYSIS_PROMPT.replace("{user_input}", user_input)
         messages = [
-            {"role": "system", "content": INTENT_ANALYSIS_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_input}
         ]
         

@@ -156,11 +156,15 @@ class RateLimiter:
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """API 限流中间件
-    
+
     基于 IP 地址和用户身份进行请求频率限制。
     公开接口（如 /api/health）不受限流影响。
+
+    所有限流器实例通过 _shared_limiter 和 _shared_path_limiters 集中管理，
+    监控 API 可通过 get_shared_rate_limit_stats() / reset_shared_rate_limits()
+    获取和重置统计数据，无需直接引用中间件实例。
     """
-    
+
     # 不受限流的路径
     EXEMPT_PATHS = [
         "/api/health",
@@ -170,7 +174,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         "/",
         "/static",
     ]
-    
+
     # 不同路径的限流配置
     PATH_LIMITS = {
         "/api/chat": {"requests_per_minute": 30, "burst_size": 5},
@@ -178,7 +182,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         "/api/auth/login": {"requests_per_minute": 10, "burst_size": 3},
         "/api/privilege": {"requests_per_minute": 20, "burst_size": 5},
     }
-    
+
+    # ------------------------------------------------------------------
+    # 共享限流器（模块级单例，供中间的件和监控 API 共用）
+    # ------------------------------------------------------------------
+    _shared_default_limiter: Optional[RateLimiter] = None
+    _shared_path_limiters: Dict[str, RateLimiter] = {}
+
     def __init__(
         self,
         app,
@@ -192,10 +202,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "requests_per_hour": default_requests_per_hour,
             "burst_size": default_burst_size,
         }
-        
-        # 为不同路径创建独立的限流器
-        self._limiters: Dict[str, RateLimiter] = {}
-        self._default_limiter = RateLimiter(**self.default_config)
+
+        # 使用共享限流器（首次创建后复用，确保监控 API 获取到实际统计数据）
+        if RateLimitMiddleware._shared_default_limiter is None:
+            RateLimitMiddleware._shared_default_limiter = RateLimiter(**self.default_config)
+        self._default_limiter = RateLimitMiddleware._shared_default_limiter
+
+        self._limiters = RateLimitMiddleware._shared_path_limiters
     
     def _get_limiter(self, path: str) -> RateLimiter:
         """获取对应路径的限流器"""
@@ -290,8 +303,32 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             stats["paths"][path] = await limiter.get_stats()
         return stats
 
+    async def get_stats(self) -> Dict:
+        """获取所有限流器的统计信息（实例方法，向后兼容）"""
+        return await get_shared_rate_limit_stats()
+
     async def reset_stats(self):
-        """重置所有限流器的统计信息"""
-        await self._default_limiter.reset_stats()
-        for limiter in self._limiters.values():
-            await limiter.reset_stats()
+        """重置所有限流器的统计信息（实例方法，向后兼容）"""
+        await reset_shared_rate_limits()
+
+
+# ===== 共享限流器访问函数（供监控 API 使用）=====
+
+async def get_shared_rate_limit_stats() -> Dict:
+    """获取共享限流器的统计信息（由实际生效的中间件写入）"""
+    stats = {
+        "default": await RateLimitMiddleware._shared_default_limiter.get_stats()
+        if RateLimitMiddleware._shared_default_limiter else {},
+        "paths": {},
+    }
+    for path, limiter in RateLimitMiddleware._shared_path_limiters.items():
+        stats["paths"][path] = await limiter.get_stats()
+    return stats
+
+
+async def reset_shared_rate_limits():
+    """重置共享限流器的统计信息"""
+    if RateLimitMiddleware._shared_default_limiter:
+        await RateLimitMiddleware._shared_default_limiter.reset_stats()
+    for limiter in RateLimitMiddleware._shared_path_limiters.values():
+        await limiter.reset_stats()

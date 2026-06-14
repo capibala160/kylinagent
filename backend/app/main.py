@@ -29,16 +29,12 @@ app = FastAPI(
 request_monitor = RequestMonitor()
 app.add_middleware(RequestMonitorMiddleware, monitor=request_monitor)
 
-# API 限流中间件
-# rate_limit 被 api/monitor.py 导入使用，配置须与 add_middleware 保持一致
+# API 限流中间件（通过共享限流器统计，monitor.py 不再依赖模块级实例）
 _rate_limit_config = dict(
     default_requests_per_minute=60,
     default_requests_per_hour=1000,
     default_burst_size=10,
 )
-
-# 创建单例，同时用于中间件注册和监控 API 引用
-rate_limit = RateLimitMiddleware(app, **_rate_limit_config)
 app.add_middleware(RateLimitMiddleware, **_rate_limit_config)
 
 # CORS 配置

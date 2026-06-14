@@ -140,7 +140,7 @@ start_service() {
     
     # 等待启动
     log_info "等待服务启动 (PID: $PID)..."
-    for i in {1..15}; do
+    for i in $(seq 1 15); do
         if curl -sf http://localhost:8000/api/health > /dev/null 2>&1; then
             log_info "✅ 服务启动成功!"
             log_info "访问地址: http://localhost:8000"
@@ -178,7 +178,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=$BACKEND_DIR
-Environment="PATH=$BACKEND_DIR/venv/bin"
+Environment="PATH=$BACKEND_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="CONFIG_PATH=$SCRIPT_DIR/config/agent.yaml"
 ExecStart=$BACKEND_DIR/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always

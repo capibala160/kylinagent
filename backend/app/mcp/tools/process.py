@@ -190,8 +190,8 @@ class KillProcessTool(BaseTool):
         }
     }
     
-    # 禁止终止的系统关键进程 PID
-    PROTECTED_PIDS = {1, 2}  # init, kthreadd
+    # 禁止终止的系统关键进程 PID（与 SecurityGuard.PROTECTED_PIDS 保持一致）
+    PROTECTED_PIDS = {0, 1, 2}  # kernel tasks: idle, init, kthreadd
     
     async def execute(self, arguments: Dict[str, Any]) -> ToolCallResult:
         pid = arguments.get("pid")
@@ -203,8 +203,15 @@ class KillProcessTool(BaseTool):
                 isError=True
             )
         
-        # PID 范围校验
-        if not isinstance(pid, int) or pid <= 0:
+        # PID 范围校验（兼容字符串和整数输入）
+        try:
+            pid = int(pid)
+        except (TypeError, ValueError):
+            return ToolCallResult(
+                content=[TextContent(type="text", text=f"错误: PID 必须是正整数，收到 {pid}")],
+                isError=True
+            )
+        if pid <= 0:
             return ToolCallResult(
                 content=[TextContent(type="text", text=f"错误: PID 必须是正整数，收到 {pid}")],
                 isError=True

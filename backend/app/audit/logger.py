@@ -38,7 +38,11 @@ class AuditLogger:
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         # 设置目录权限为 750，防止其他用户读取审计日志
-        os.chmod(self.log_dir, 0o750)
+        try:
+            os.chmod(self.log_dir, 0o750)
+        except (OSError, PermissionError, NotImplementedError):
+            # Windows 或权限不足时静默跳过
+            pass
         self.retention_days = retention_days
         
         # 告警回调函数列表

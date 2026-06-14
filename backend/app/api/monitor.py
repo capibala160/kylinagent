@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Query, Depends, Request, HTTPException
 from pydantic import BaseModel, Field
 
-from ..auth.session import session_auth
+from ..auth.session import get_session_auth
 from ..db import db_get_user
 from ..monitor import get_monitor
 
@@ -16,12 +16,12 @@ router = APIRouter()
 
 
 async def _get_current_user(request: Request) -> str:
-    return await session_auth.verify(request)
+    return await get_session_auth().verify(request)
 
 
 async def _require_admin(request: Request) -> str:
     """仅允许管理员角色访问"""
-    user = await session_auth.verify(request)
+    user = await get_session_auth().verify(request)
     user_info = await db_get_user(user)
     role = user_info.get("role", "user") if user_info else "user"
     if role != "admin":
@@ -70,11 +70,11 @@ async def monitor_history(
 async def ratelimit_stats(user: str = Depends(_get_current_user)):
     """
     获取 API 限流统计信息
-    
+
     返回各路径的限流配置和当前状态。
     """
-    from ..main import rate_limit
-    stats = await rate_limit.get_stats()
+    from ..middleware.ratelimit import get_shared_rate_limit_stats
+    stats = await get_shared_rate_limit_stats()
     return {
         "success": True,
         "data": stats,
@@ -85,11 +85,11 @@ async def ratelimit_stats(user: str = Depends(_get_current_user)):
 async def ratelimit_reset(user: str = Depends(_require_admin)):
     """
     重置限流统计信息（仅管理员）
-    
+
     清零所有计数器，保留限流配置。
     """
-    from ..main import rate_limit
-    await rate_limit.reset_stats()
+    from ..middleware.ratelimit import reset_shared_rate_limits
+    await reset_shared_rate_limits()
     return {
         "success": True,
         "message": "限流统计已重置",
@@ -172,24 +172,25 @@ async def request_stats_reset(user: str = Depends(_require_admin)):
 async def monitor_dashboard(user: str = Depends(_get_current_user)):
     """
     获取综合监控面板数据
-    
+
     整合系统监控、限流统计、请求监控的数据，用于前端仪表盘展示。
     """
-    from ..main import rate_limit, request_monitor
-    
+    from ..main import request_monitor
+    from ..middleware.ratelimit import get_shared_rate_limit_stats
+
     # 系统监控
     sys_monitor = get_monitor()
     sys_data = await sys_monitor.get_overview()
-    
-    # 限流统计
-    ratelimit_data = await rate_limit.get_stats()
-    
+
+    # 限流统计（从共享限流器获取实际统计数据）
+    ratelimit_data = await get_shared_rate_limit_stats()
+
     # 请求监控
     request_data = await request_monitor.get_stats()
-    
+
     # 最近错误
     recent_errors = await request_monitor.get_recent_errors(limit=10)
-    
+
     return {
         "success": True,
         "data": {

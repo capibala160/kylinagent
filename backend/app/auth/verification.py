@@ -99,7 +99,9 @@ class VerificationManager:
         return {
             "success": True,
             "message": "验证码已发送",
-            "code": code,  # 仅在开发/调试时使用，生产环境不应返回
+            # 注意：code 仅供内部使用（邮件/短信发送），
+            # 调用方负责在生产环境中过滤掉，禁止直接返回给客户端。
+            "code": code,
             "cooldown": SEND_INTERVAL,
         }
 

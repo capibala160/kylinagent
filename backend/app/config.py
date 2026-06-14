@@ -1,4 +1,5 @@
 import os
+import threading
 import yaml
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -112,34 +113,38 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
 _config: Optional[AppConfig] = None
 _config_path: Optional[str] = None
 _config_path_dirty: bool = False
+_config_lock = threading.Lock()
 
 
 def get_config(force_reload: bool = False) -> AppConfig:
     """
     获取应用配置。
-    
+
     Args:
         force_reload: 为 True 时强制重新加载配置文件（热更新）
-    
+
     Returns:
         AppConfig 实例
     """
     global _config, _config_path_dirty
-    if _config is None or force_reload or _config_path_dirty:
-        _config = load_config(_config_path)
-        _config_path_dirty = False
-    return _config
+    with _config_lock:
+        if _config is None or force_reload or _config_path_dirty:
+            _config = load_config(_config_path)
+            _config_path_dirty = False
+        return _config
 
 
 def set_config_path(path: Optional[str] = None):
     """设置配置文件路径，下次 get_config 时自动重新加载"""
     global _config_path, _config_path_dirty
-    _config_path = path
-    _config_path_dirty = True
+    with _config_lock:
+        _config_path = path
+        _config_path_dirty = True
 
 
 def reset_config():
     """重置配置（主要用于单元测试）"""
     global _config, _config_path_dirty
-    _config = None
-    _config_path_dirty = False
+    with _config_lock:
+        _config = None
+        _config_path_dirty = False

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from ..agent import OpsAgent, SessionManager
 from ..audit import AuditLogger
-from ..auth.session import session_auth
+from ..auth.session import get_session_auth
 from ..auth.verification import VerificationManager
 from ..auth.email import get_email_service
 from ..config import get_config
@@ -96,12 +96,12 @@ def reset_agent():
 
 async def get_current_user(request: Request) -> str:
     """统一认证依赖：优先 Cookie Session，降级支持 Dev Token"""
-    return await session_auth.verify(request)
+    return await get_session_auth().verify(request)
 
 
 async def get_current_user_with_role(request: Request) -> Dict[str, str]:
     """返回当前用户及其角色"""
-    username = await session_auth.verify(request)
+    username = await get_session_auth().verify(request)
     user = await db_get_user(username)
     role = user.get("role", "user") if user else "user"
     return {"username": username, "role": role}
@@ -212,10 +212,10 @@ async def register(request: RegisterRequest):
     用户注册接口。
     注册成功后直接返回，不自动登录（需手动登录）。
     """
-    if await session_auth.user_exists(request.username):
+    if await get_session_auth().user_exists(request.username):
         raise HTTPException(status_code=409, detail="用户名已存在")
 
-    success = await session_auth.register(
+    success = await get_session_auth().register(
         request.username, request.password,
         phone=request.phone, email=request.email
     )
@@ -235,10 +235,10 @@ async def login(request: LoginRequest, response: Response):
     用户登录接口。
     成功后在响应中设置 HttpOnly Cookie（ops_session）。
     """
-    if not await session_auth.verify_password(request.username, request.password):
+    if not await get_session_auth().verify_password(request.username, request.password):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-    sid = await session_auth.create(request.username)
+    sid = await get_session_auth().create(request.username)
     config = get_config()
     response.set_cookie(
         key="ops_session",
@@ -264,7 +264,7 @@ async def logout(request: Request, response: Response):
     """用户登出接口，销毁 Session 并清除 Cookie"""
     sid = request.cookies.get("ops_session", "")
     if sid:
-        await session_auth.destroy(sid)
+        await get_session_auth().destroy(sid)
     response.delete_cookie(key="ops_session", path="/")
     return {"success": True, "message": "已登出"}
 
@@ -286,16 +286,16 @@ async def send_code(request: SendCodeRequest):
     # 根据用途校验目标是否存在
     if request.purpose == "register":
         if request.target_type == "email":
-            existing = await session_auth.get_user_by_email(request.target)
+            existing = await get_session_auth().get_user_by_email(request.target)
         else:
-            existing = await session_auth.get_user_by_phone(request.target)
+            existing = await get_session_auth().get_user_by_phone(request.target)
         if existing:
             raise HTTPException(status_code=409, detail="该账号已被注册")
     elif request.purpose in ("login", "reset_password"):
         if request.target_type == "email":
-            existing = await session_auth.get_user_by_email(request.target)
+            existing = await get_session_auth().get_user_by_email(request.target)
         else:
-            existing = await session_auth.get_user_by_phone(request.target)
+            existing = await get_session_auth().get_user_by_phone(request.target)
         if not existing:
             raise HTTPException(status_code=404, detail="账号不存在")
 
@@ -344,13 +344,13 @@ async def register_with_code(request: CodeRegisterRequest):
     if not valid:
         raise HTTPException(status_code=400, detail="验证码错误或已过期")
 
-    if await session_auth.user_exists(request.username):
+    if await get_session_auth().user_exists(request.username):
         raise HTTPException(status_code=409, detail="用户名已存在")
 
     phone = request.target if request.target_type == "phone" else None
     email = request.target if request.target_type == "email" else None
 
-    success = await session_auth.register(
+    success = await get_session_auth().register(
         request.username, request.password, phone=phone, email=email
     )
     if not success:
@@ -375,15 +375,15 @@ async def login_with_code(request: CodeLoginRequest, response: Response):
 
     # 查找用户
     if request.target_type == "email":
-        user = await session_auth.get_user_by_email(request.target)
+        user = await get_session_auth().get_user_by_email(request.target)
     else:
-        user = await session_auth.get_user_by_phone(request.target)
+        user = await get_session_auth().get_user_by_phone(request.target)
 
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
     username = user["username"]
-    sid = await session_auth.create(username)
+    sid = await get_session_auth().create(username)
     config = get_config()
     response.set_cookie(
         key="ops_session",
@@ -407,9 +407,9 @@ async def login_with_code(request: CodeLoginRequest, response: Response):
 async def forgot_password(request: ForgotPasswordRequest):
     """找回密码：发送验证码"""
     if request.target_type == "email":
-        user = await session_auth.get_user_by_email(request.target)
+        user = await get_session_auth().get_user_by_email(request.target)
     else:
-        user = await session_auth.get_user_by_phone(request.target)
+        user = await get_session_auth().get_user_by_phone(request.target)
 
     if not user:
         raise HTTPException(status_code=404, detail="账号不存在")
@@ -442,14 +442,14 @@ async def reset_password(request: ResetPasswordRequest):
         raise HTTPException(status_code=400, detail="验证码错误或已过期")
 
     if request.target_type == "email":
-        user = await session_auth.get_user_by_email(request.target)
+        user = await get_session_auth().get_user_by_email(request.target)
     else:
-        user = await session_auth.get_user_by_phone(request.target)
+        user = await get_session_auth().get_user_by_phone(request.target)
 
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
-    success = await session_auth.reset_password(user["username"], request.new_password)
+    success = await get_session_auth().reset_password(user["username"], request.new_password)
     if not success:
         raise HTTPException(status_code=500, detail="密码重置失败")
 
@@ -1291,7 +1291,7 @@ async def mcp_endpoint(request: Request):
     """
     # 安全校验：MCP 端点必须登录
     try:
-        user = await session_auth.verify(request)
+        user = await get_session_auth().verify(request)
     except HTTPException:
         return JSONResponse(
             status_code=401,

@@ -141,6 +141,19 @@ class SMSService:
             logger.info(f"[短信模拟-自定义] To: {phone}, code={code}, purpose={purpose}")
             return True
 
+        # SSRF 防护：仅允许 HTTPS 且域名为白名单（默认仅允许常见短信网关端口）
+        from urllib.parse import urlparse
+        parsed = urlparse(self.custom_url)
+        if parsed.scheme not in ("https",):
+            logger.error(f"自定义短信 URL 仅允许 HTTPS: {self.custom_url}")
+            return False
+        # 禁止内网地址
+        hostname = (parsed.hostname or "").lower()
+        blocked_hosts = ("localhost", "127.", "10.", "172.16.", "192.168.", "0.", "[::1]")
+        if any(hostname.startswith(b) for b in blocked_hosts):
+            logger.error(f"自定义短信 URL 禁止内网地址: {hostname}")
+            return False
+
         try:
             payload = json.dumps({
                 "phone": phone,

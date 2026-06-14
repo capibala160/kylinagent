@@ -136,7 +136,7 @@ class OpsAgent:
         # ====== Confirm 闭环处理 ======
         # 如果用户已确认，且当前会话有待确认的操作，直接执行
         if confirmed and session and session.pending_confirmation:
-            return await self._execute_pending_confirmation(user_input, session_id, session, user)
+            return await self._execute_pending_confirmation(user_input, session_id, session, user, elevated)
         
         # 正常流程
         chain = ReasoningChain(session_id=session_id, user_input=user_input, user=user)
@@ -560,7 +560,8 @@ class OpsAgent:
         return "\n\n---\n\n".join(sections)
     
     async def _execute_pending_confirmation(self, user_input: str, session_id: str,
-                                               session, user: str = "") -> Dict[str, Any]:
+                                               session, user: str = "",
+                                               elevated: bool = False) -> Dict[str, Any]:
         """
         执行用户确认后的挂起操作（confirm 闭环核心）
         """
@@ -635,13 +636,16 @@ class OpsAgent:
                 continue
             
             exec_start = time.time()
-            result = await self._execute_tool(tool_name, arguments)
+            result = await self._execute_tool(
+                tool_name, arguments, elevated=elevated, session_id=session_id, user=user
+            )
             exec_duration = (time.time() - exec_start) * 1000
-            
+
             chain.add_node(
                 ChainNodeType.TOOL_CALL,
                 f"确认执行工具: {tool_name}",
-                input_data={"tool": tool_name, "arguments": arguments, "confirmed": True},
+                input_data={"tool": tool_name, "arguments": arguments,
+                           "confirmed": True, "elevated": elevated},
                 output_data={
                     "isError": result.isError,
                     "has_content": len(result.content) > 0,

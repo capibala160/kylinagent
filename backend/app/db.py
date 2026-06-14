@@ -12,6 +12,7 @@ from typing import Optional, List, Dict
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column
 from sqlalchemy import select, delete, String, Float, Integer
+from sqlalchemy import exc as sa_exc
 
 
 # 数据库文件路径
@@ -129,7 +130,12 @@ async def db_create_user(username: str, password_hash: str, role: str = "user",
         
         user = UserModel(username=username, password_hash=password_hash, role=role, phone=phone, email=email)
         session.add(user)
-        await session.commit()
+        try:
+            await session.commit()
+        except sa_exc.IntegrityError:
+            # 并发创建或 UNIQUE 约束冲突（TOCTOU 兜底）
+            await session.rollback()
+            return False
         return True
 
 
@@ -436,10 +442,9 @@ async def db_delete_expired_chat_sessions(ttl: int) -> int:
         )
         ids = [row[0] for row in expired_ids.all()]
         if ids:
-            for sid in ids:
-                await session.execute(
-                    delete(ChatMessageModel).where(ChatMessageModel.session_id == sid)
-                )
+            await session.execute(
+                delete(ChatMessageModel).where(ChatMessageModel.session_id.in_(ids))
+            )
             await session.execute(
                 delete(ChatSessionModel).where(ChatSessionModel.session_id.in_(ids))
             )
@@ -456,7 +461,9 @@ class PrivilegeRequestModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     request_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    command: Mapped[str] = mapped_column(String(500), nullable=False)
+    command: Mapped[str] = mapped_column(String(500), nullable=False)  # 展示用命令描述
+    tool_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)  # 实际申请提权的工具名
+    arguments: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)  # 工具参数 JSON
     reason: Mapped[str] = mapped_column(String(500), nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending / approved / rejected / expired
     requested_by: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -469,15 +476,24 @@ class PrivilegeRequestModel(Base):
 # ===== 权限申请 CRUD =====
 
 async def db_create_privilege_request(
-    request_id: str, session_id: str, command: str, reason: str, requested_by: str
+    request_id: str,
+    session_id: str,
+    command: str,
+    reason: str,
+    requested_by: str,
+    tool_name: Optional[str] = None,
+    arguments: Optional[Dict] = None,
 ) -> None:
     """创建权限申请"""
+    import json
     factory = await get_session_factory()
     async with factory() as session:
         req = PrivilegeRequestModel(
             request_id=request_id,
             session_id=session_id,
             command=command,
+            tool_name=tool_name,
+            arguments=json.dumps(arguments, ensure_ascii=False) if arguments else None,
             reason=reason,
             status="pending",
             requested_by=requested_by,
@@ -500,6 +516,8 @@ async def db_get_privilege_request(request_id: str) -> Optional[Dict]:
                 "request_id": r.request_id,
                 "session_id": r.session_id,
                 "command": r.command,
+                "tool_name": r.tool_name,
+                "arguments": r.arguments,
                 "reason": r.reason,
                 "status": r.status,
                 "requested_by": r.requested_by,
